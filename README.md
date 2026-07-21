@@ -19,6 +19,8 @@ already stores. No tokens to paste, no config.
 go install github.com/McKean/aiquokka@latest
 ```
 
+Requires Go (macOS: `brew install go`, Linux: use your package manager or https://go.dev/dl/).
+
 Or build from source:
 
 ```sh
