@@ -89,7 +89,7 @@ machine and queries the same usage endpoint that CLI uses.
 
 | Command | Credentials | Endpoint |
 | --- | --- | --- |
-| `claude` | `~/.claude/.credentials.json` (OAuth) | `api.anthropic.com/api/oauth/usage` |
+| `claude` | macOS Keychain, or `~/.claude/.credentials.json` (OAuth) | `api.anthropic.com/api/oauth/usage` |
 | `codex`  | `~/.codex/auth.json` (ChatGPT OAuth) | `chatgpt.com/backend-api/wham/usage` |
 | `kimi`   | `~/.kimi-code` / `~/.kimi` OAuth, or `$KIMI_API_KEY` | `api.kimi.com/coding/v1/usages` |
 | `grok`   | `~/.grok/auth.json` (xAI OIDC) | `cli-chat-proxy.grok.com/v1/billing?format=credits` |
@@ -97,6 +97,16 @@ machine and queries the same usage endpoint that CLI uses.
 Every provider that uses a short-lived OAuth access token (all except a static
 Kimi key) **refreshes automatically** when the token has expired and writes the
 new token back to the credential file.
+
+### Claude Code on macOS
+
+Claude Code stores its OAuth credential in the macOS Keychain. Aiquokka reads
+the single `Claude Code-credentials` item and, when a refresh is required,
+updates that same item while preserving fields it does not own. It deliberately
+refuses to choose between multiple matching Keychain items: log out of unused
+Claude Code accounts first, then log in to the account whose limits you want to
+query. This storage format is an implementation detail of Claude Code and may
+change without notice.
 
 Per-provider notes:
 
@@ -128,4 +138,3 @@ minutes.
 ## License
 
 [MIT](LICENSE)
-
