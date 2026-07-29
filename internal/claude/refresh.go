@@ -95,6 +95,22 @@ func doRefresh(ctx context.Context, endpoint string, form url.Values) (*refreshR
 // persist writes the updated oauth block back into the credentials file,
 // preserving any other keys already present.
 func persist(o *oauth) error {
+	if len(o.source.keychainItem) != 0 {
+		data, err := readKeychainItem(o.source.keychainItem)
+		if err != nil {
+			return err
+		}
+		_, direct, err := parseCredentials(data)
+		if err != nil {
+			return err
+		}
+		data, err = mergeCredentials(data, direct, o)
+		if err != nil {
+			return err
+		}
+		return updateKeychainItem(o.source.keychainItem, data)
+	}
+
 	path, err := credentialsPath()
 	if err != nil {
 		return err
@@ -103,34 +119,7 @@ func persist(o *oauth) error {
 	if err != nil {
 		return err
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	// Merge into the existing claudeAiOauth object so we don't drop fields.
-	var existing map[string]json.RawMessage
-	if b, ok := raw["claudeAiOauth"]; ok {
-		_ = json.Unmarshal(b, &existing)
-	}
-	if existing == nil {
-		existing = map[string]json.RawMessage{}
-	}
-	set := func(key string, v any) {
-		if b, err := json.Marshal(v); err == nil {
-			existing[key] = b
-		}
-	}
-	set("accessToken", o.AccessToken)
-	set("refreshToken", o.RefreshToken)
-	set("expiresAt", o.ExpiresAt)
-
-	merged, err := json.Marshal(existing)
-	if err != nil {
-		return err
-	}
-	raw["claudeAiOauth"] = merged
-	out, err := json.MarshalIndent(raw, "", "  ")
+	out, err := mergeCredentials(data, false, o)
 	if err != nil {
 		return err
 	}
