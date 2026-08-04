@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/McKean/aiquokka/internal/httpx"
 	"github.com/McKean/aiquokka/internal/usage"
@@ -18,8 +19,9 @@ type appData struct {
 }
 
 type copilotResponse struct {
-	CopilotPlan    string `json:"copilot_plan"`
-	QuotaSnapshots struct {
+	CopilotPlan       string `json:"copilot_plan"`
+	QuotaResetDateUTC string `json:"quota_reset_date_utc"`
+	QuotaSnapshots    struct {
 		PremiumInteractions *struct {
 			PercentRemaining float64 `json:"percent_remaining"`
 		} `json:"premium_interactions"`
@@ -94,6 +96,11 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 
 	report := &usage.Report{Provider: "Copilot", Plan: out.CopilotPlan}
 
+	var resetsAt time.Time
+	if out.QuotaResetDateUTC != "" {
+		resetsAt, _ = time.Parse(time.RFC3339, out.QuotaResetDateUTC)
+	}
+
 	addWindow := func(label string, snap *struct {
 		PercentRemaining float64 `json:"percent_remaining"`
 	}) {
@@ -102,6 +109,7 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 			report.Windows = append(report.Windows, usage.Window{
 				Label:       label,
 				UsedPercent: &used,
+				ResetsAt:    resetsAt,
 			})
 		}
 	}
