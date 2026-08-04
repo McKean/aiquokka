@@ -97,8 +97,14 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 	report := &usage.Report{Provider: "Copilot", Plan: out.CopilotPlan}
 
 	var resetsAt time.Time
+	var duration time.Duration
 	if out.QuotaResetDateUTC != "" {
-		resetsAt, _ = time.Parse(time.RFC3339, out.QuotaResetDateUTC)
+		if t, err := time.Parse(time.RFC3339, out.QuotaResetDateUTC); err == nil {
+			resetsAt = t
+			// Copilot windows are monthly. Approximate the start as exactly one month prior.
+			start := t.AddDate(0, -1, 0)
+			duration = t.Sub(start)
+		}
 	}
 
 	addWindow := func(label string, snap *struct {
@@ -110,6 +116,7 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 				Label:       label,
 				UsedPercent: &used,
 				ResetsAt:    resetsAt,
+				Duration:    duration,
 			})
 		}
 	}
