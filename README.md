@@ -1,7 +1,7 @@
 # aiquokka
 
 One command to see the usage limits of all your AI coding subscriptions —
-Claude, Codex, Kimi, and Grok — reading the credentials each official CLI
+Claude, Codex, Kimi, Copilot, Grok, and Antigravity — reading the credentials each official CLI
 already stores. No tokens to paste, no config.
 
 ![aiquokka demo](docs/demo.gif)
@@ -35,6 +35,8 @@ aiquokka claude    # 5-hour and weekly limits
 aiquokka codex     # weekly limit + remaining resets
 aiquokka kimi      # 5-hour and weekly limits
 aiquokka grok      # weekly usage limit + subscription tier
+aiquokka copilot   # copilot chat/completions limits
+aiquokka agy       # daily antigravity limits
 ```
 
 ```
@@ -93,6 +95,8 @@ machine and queries the same usage endpoint that CLI uses.
 | `codex`  | `~/.codex/auth.json` (ChatGPT OAuth) | `chatgpt.com/backend-api/wham/usage` |
 | `kimi`   | `~/.kimi-code` / `~/.kimi` OAuth, or `$KIMI_API_KEY` | `api.kimi.com/coding/v1/usages` |
 | `grok`   | `~/.grok/auth.json` (xAI OIDC) | `cli-chat-proxy.grok.com/v1/billing?format=credits` |
+| `copilot`| `~/.config/github-copilot/{apps,hosts}.json` | `api.github.com/copilot_internal/user` |
+| `agy`    | `~/.gemini/antigravity-cli/antigravity-oauth-token` | `daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` |
 
 Every provider that uses a short-lived OAuth access token (all except a static
 Kimi key) **refreshes automatically** when the token has expired and writes the
@@ -118,15 +122,8 @@ Per-provider notes:
   `/usage` shows), plus subscription tier and Grok Code access. xAI rotates
   refresh tokens, so if both `grok` and `aiquokka` refresh the most recent one
   wins; a "run grok to re-login" message means the stored token was superseded.
-
-### Not supported: Gemini / Antigravity
-
-Antigravity (`agy`) authenticates as a *different* account than the classic
-gemini-cli credentials, keeps its token in the OS keyring, and fetches its
-grouped weekly quota from `daily-cloudcode-pa.googleapis.com` through a
-first-party mechanism whose quota methods reject an externally-presented token
-(HTTP 403). Those numbers can't be reproduced from outside the app without
-capturing a live request, so no `gemini`/`antigravity` command is shipped.
+- **Copilot** fetches usage across Chat, Completions, and Premium Interactions based on the IDE or GitHub CLI stored credential.
+- **Antigravity** reads the OAuth token stored in `~/.gemini/antigravity-cli/antigravity-oauth-token` and impersonates the CLI's first-party OAuth client to access the restricted quota endpoint.
 
 ## Caveats
 

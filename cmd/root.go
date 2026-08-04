@@ -4,8 +4,10 @@ package cmd
 import (
 	"github.com/McKean/aiquokka/internal/claude"
 	"github.com/McKean/aiquokka/internal/codex"
+	"github.com/McKean/aiquokka/internal/copilot"
 	"github.com/McKean/aiquokka/internal/grok"
 	"github.com/McKean/aiquokka/internal/kimi"
+	"github.com/McKean/aiquokka/internal/antigravity"
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +17,8 @@ var allProviders = []provider{
 	{name: "Codex", fetch: codex.Fetch},
 	{name: "Kimi", fetch: kimi.Fetch},
 	{name: "Grok", fetch: grok.Fetch},
+	{name: "Copilot", fetch: copilot.Fetch},
+	{name: "Antigravity", fetch: antigravity.Fetch},
 }
 
 // Global output-format flags: emit raw structured output instead of the
@@ -34,7 +38,9 @@ func newRootCmd() *cobra.Command {
   aiquokka claude   5-hour and weekly limits
   aiquokka codex    weekly limit and reset info
   aiquokka kimi     5-hour and weekly limits
-  aiquokka grok     weekly usage limit`,
+  aiquokka grok     weekly usage limit
+  aiquokka copilot  copilot chat/completions limits
+  aiquokka agy      daily antigravity limits`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -52,6 +58,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newCodexCmd())
 	root.AddCommand(newKimiCmd())
 	root.AddCommand(newGrokCmd())
+	root.AddCommand(newCopilotCmd())
+	root.AddCommand(newAntigravityCmd())
 	return root
 }
 
