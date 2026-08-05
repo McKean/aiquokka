@@ -20,17 +20,25 @@ func Render(w io.Writer, r *Report, now time.Time) {
 	if len(r.Windows) == 0 {
 		fmt.Fprintln(w, "  no usage windows reported")
 	}
+	
+	maxLabel := 8
 	for _, win := range r.Windows {
-		fmt.Fprintln(w, renderWindow(win, now))
+		if len(win.Label) > maxLabel {
+			maxLabel = len(win.Label)
+		}
+	}
+	
+	for _, win := range r.Windows {
+		fmt.Fprintln(w, renderWindow(win, now, maxLabel))
 	}
 	for _, f := range r.Extra {
 		fmt.Fprintf(w, "  %-14s %s\n", f.Label+":", f.Value)
 	}
 }
 
-func renderWindow(win Window, now time.Time) string {
+func renderWindow(win Window, now time.Time, maxLabel int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "  %-8s ", win.Label)
+	fmt.Fprintf(&b, "  %-*s ", maxLabel, win.Label)
 
 	pace := win.Pace(now)
 	if win.UsedPercent != nil {
