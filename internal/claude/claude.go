@@ -16,17 +16,20 @@ const usageEndpoint = "https://api.anthropic.com/api/oauth/usage"
 // request into an aggressively rate-limited bucket (429s).
 const userAgent = "claude-code/2.0.32"
 
-// window mirrors the {utilization, resets_at} shape the endpoint returns.
-type window struct {
-	Utilization *float64 `json:"utilization"`
-	ResetsAt    string   `json:"resets_at"`
+const week = 7 * 24 * time.Hour
+
+// usageResponse is the endpoint's payload. Every window we render comes from
+// `limits`: the top-level five_hour and seven_day objects restate its first
+// two entries, and Fable's cap appears nowhere else.
+type usageResponse struct {
+	Limits []limit `json:"limits"`
 }
 
-type usageResponse struct {
-	FiveHour       *window `json:"five_hour"`
-	SevenDay       *window `json:"seven_day"`
-	SevenDayOpus   *window `json:"seven_day_opus"`
-	SevenDaySonnet *window `json:"seven_day_sonnet"`
+// limit is one entry of the `limits` array.
+type limit struct {
+	Kind     string   `json:"kind"`
+	Percent  *float64 `json:"percent"`
+	ResetsAt string   `json:"resets_at"`
 }
 
 // Fetch reads local credentials (refreshing the token if needed) and returns
@@ -57,17 +60,14 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 		Provider: "Claude",
 		Plan:     plan(creds),
 	}
-	if w := toWindow("5h", resp.FiveHour); w != nil {
-		report.Windows = append(report.Windows, *w)
-	}
-	if w := toWindow("Weekly", resp.SevenDay); w != nil {
-		report.Windows = append(report.Windows, *w)
-	}
-	if w := toWindow("Weekly Opus", resp.SevenDayOpus); w != nil {
-		report.Windows = append(report.Windows, *w)
-	}
-	if w := toWindow("Weekly Sonnet", resp.SevenDaySonnet); w != nil {
-		report.Windows = append(report.Windows, *w)
+	for _, w := range []*usage.Window{
+		resp.window("session", "5h", 5*time.Hour),
+		resp.window("weekly_all", "Weekly", week),
+		resp.window("weekly_scoped", "Weekly Fable", week),
+	} {
+		if w != nil {
+			report.Windows = append(report.Windows, *w)
+		}
 	}
 	return report, nil
 }
@@ -84,21 +84,18 @@ func plan(o *oauth) string {
 	return ""
 }
 
-// toWindow converts an API window into the shared model, or nil when absent.
-func toWindow(label string, w *window) *usage.Window {
-	if w == nil || w.Utilization == nil {
-		return nil
-	}
-	out := usage.Window{Label: label, UsedPercent: w.Utilization}
-	if label == "5h" {
-		out.Duration = 5 * time.Hour
-	} else {
-		out.Duration = 7 * 24 * time.Hour
-	}
-	if w.ResetsAt != "" {
-		if t, err := time.Parse(time.RFC3339, w.ResetsAt); err == nil {
+// window converts the limit of the given kind into the shared model, or nil
+// when the account does not have that limit.
+func (resp *usageResponse) window(kind, label string, d time.Duration) *usage.Window {
+	for _, l := range resp.Limits {
+		if l.Kind != kind || l.Percent == nil {
+			continue
+		}
+		out := usage.Window{Label: label, UsedPercent: l.Percent, Duration: d}
+		if t, err := time.Parse(time.RFC3339, l.ResetsAt); err == nil {
 			out.ResetsAt = t
 		}
+		return &out
 	}
-	return &out
+	return nil
 }
