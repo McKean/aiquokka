@@ -31,7 +31,7 @@ go build -o aiquokka .
 
 ```sh
 aiquokka           # all configured providers at once
-aiquokka claude    # 5-hour and weekly limits
+aiquokka claude    # 5-hour, weekly, and weekly Fable limits
 aiquokka codex     # weekly limit + remaining resets
 aiquokka kimi      # 5-hour and weekly limits
 aiquokka grok      # weekly usage limit + subscription tier
@@ -43,9 +43,14 @@ aiquokka agy       # daily antigravity limits
 $ aiquokka claude
 Claude  (max/default_claude_max_5x)
 ───────────────────────────────────
-  5h       [██████░░░░░░░░░░░░░▒░░░░]  24.0%   resets in 33m (Mon 19:00)
-  Weekly   [█▒░░░░░░░░░░░░░░░░░░░░░░]   3.0%   resets in 6d20h (Mon 15:00)
+  5h           [██████░░░░░░░░░░░░░░░▒░░]  24.0%   resets in 33m (Mon 19:00)
+  Weekly       [███████████░░░▒░░░░░░░░░]  45.0%   resets in 2d20h (Thu 14:27)
+  Weekly Fable [██████████████▓█░░░░░░░░]  67.0%   resets in 2d20h (Thu 14:27)
 ```
+
+Fable draws from the same weekly pool and may take up to half of it, so it is
+often the limit you hit first. The two bars move together: `Weekly Fable` at
+100% puts `Weekly` at 50% or more.
 
 Run with no subcommand to fetch every provider concurrently. Providers you
 aren't logged into are skipped, so you only see the ones you use; a provider
