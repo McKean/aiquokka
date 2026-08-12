@@ -53,11 +53,13 @@ Fable draws from the same weekly pool and may take up to half of it, so it is
 often the limit you hit first. The two bars move together: `Weekly Fable` at
 100% puts `Weekly` at 50% or more.
 
-Run with no subcommand to fetch every provider concurrently. Providers you
-aren't logged into are skipped, so you only see the ones you use; a provider
-that *is* configured but errors is shown inline without aborting the rest.
-Calling a provider directly (e.g. `aiquokka kimi`) always tells you if it isn't
-set up.
+Run with no subcommand to fetch every provider concurrently. In a terminal, a
+fixed-order skeleton appears for the providers you use, then each section fills
+in as its response arrives — you keep a stable order without waiting for the
+slowest provider before seeing anything. Providers you aren't logged into are
+skipped; a provider that *is* configured but errors is shown inline without
+aborting the rest. Calling a provider directly (e.g. `aiquokka kimi`) always
+tells you if it isn't set up.
 
 ### Machine-readable output
 
