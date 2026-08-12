@@ -97,6 +97,14 @@ func runAll(providers []provider) error {
 	}
 
 	now := time.Now()
+	var reports []*usage.Report
+	for _, r := range results {
+		if r.err == nil {
+			reports = append(reports, r.report)
+		}
+	}
+	labelWidth := usage.LabelWidth(reports...)
+
 	shown := 0
 	for _, r := range results {
 		// Silently skip providers that aren't set up for this user.
@@ -112,7 +120,7 @@ func runAll(providers []provider) error {
 				strings.Repeat("─", len(r.name)), r.err.Error())
 			continue
 		}
-		usage.Render(os.Stdout, r.report, now)
+		usage.RenderAligned(os.Stdout, r.report, now, labelWidth)
 	}
 	if shown == 0 {
 		fmt.Fprintln(os.Stdout, "No configured providers found. Log in with claude, codex, kimi, or grok.")

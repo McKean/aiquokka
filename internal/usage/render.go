@@ -8,8 +8,35 @@ import (
 	"time"
 )
 
-// Render writes a human-readable view of a Report to w.
+// Render writes a human-readable view of a Report to w, aligning its bars to
+// the longest window label in that report.
 func Render(w io.Writer, r *Report, now time.Time) {
+	RenderAligned(w, r, now, LabelWidth(r))
+}
+
+// LabelWidth returns the width needed to align window labels across reports.
+// Eight characters is the minimum used by the standard single-provider view.
+func LabelWidth(reports ...*Report) int {
+	width := 8
+	for _, report := range reports {
+		if report == nil {
+			continue
+		}
+		for _, win := range report.Windows {
+			if len(win.Label) > width {
+				width = len(win.Label)
+			}
+		}
+	}
+	return width
+}
+
+// RenderAligned writes a report using labelWidth for the window-label column.
+// Aggregate callers can pass one shared width so bars line up across providers.
+func RenderAligned(w io.Writer, r *Report, now time.Time, labelWidth int) {
+	if labelWidth < 8 {
+		labelWidth = 8
+	}
 	title := r.Provider
 	if r.Plan != "" {
 		title = fmt.Sprintf("%s  (%s)", r.Provider, r.Plan)
@@ -20,16 +47,8 @@ func Render(w io.Writer, r *Report, now time.Time) {
 	if len(r.Windows) == 0 {
 		fmt.Fprintln(w, "  no usage windows reported")
 	}
-	
-	maxLabel := 8
 	for _, win := range r.Windows {
-		if len(win.Label) > maxLabel {
-			maxLabel = len(win.Label)
-		}
-	}
-	
-	for _, win := range r.Windows {
-		fmt.Fprintln(w, renderWindow(win, now, maxLabel))
+		fmt.Fprintln(w, renderWindow(win, now, labelWidth))
 	}
 	for _, f := range r.Extra {
 		fmt.Fprintf(w, "  %-14s %s\n", f.Label+":", f.Value)

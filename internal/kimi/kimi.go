@@ -206,7 +206,9 @@ func normalizeUnit(u string) string {
 	return u
 }
 
-// toWindow converts a usage row into the shared model with absolute counts.
+// toWindow converts a usage row into the shared model. Absolute counts remain
+// available to structured output, while UsedPercent keeps rendered output
+// consistent with the other providers.
 func toWindow(label string, d row) *usage.Window {
 	used := d.Used.ptr()
 	limit := d.Limit.ptr()
@@ -218,6 +220,10 @@ func toWindow(label string, d row) *usage.Window {
 		return nil
 	}
 	out := usage.Window{Label: label, Used: used, Limit: limit}
+	if used != nil && limit != nil && *limit > 0 {
+		percent := float64(*used) / float64(*limit) * 100
+		out.UsedPercent = &percent
+	}
 	if reset := firstNonEmpty(d.ResetAt, d.ResetAt2, d.ResetTime, d.ResetTime2); reset != "" {
 		if t, err := time.Parse(time.RFC3339, reset); err == nil {
 			out.ResetsAt = t
