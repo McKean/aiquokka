@@ -12,6 +12,7 @@ already stores. No tokens to paste, no config.
   now, so you can tell at a glance if you're burning too fast.
 - **Auto token refresh** — expired OAuth tokens are refreshed and written back.
 - **Scriptable** — `--json` / `--yaml` for machine-readable output.
+- **Live watch** — `--watch` / `-w` refreshes the view every 60 seconds.
 
 ## Install
 
@@ -38,6 +39,9 @@ aiquokka grok      # weekly usage limit + subscription tier
 aiquokka copilot   # copilot chat/completions limits
 aiquokka kiro      # Kiro CLI monthly credits and overage status
 aiquokka agy       # daily antigravity limits
+
+aiquokka --watch           # refresh all providers every 60s
+aiquokka claude -w         # watch a single provider
 ```
 
 ```
@@ -60,6 +64,15 @@ slowest provider before seeing anything. Providers you aren't logged into are
 skipped; a provider that *is* configured but errors is shown inline without
 aborting the rest. Calling a provider directly (e.g. `aiquokka kimi`) always
 tells you if it isn't set up.
+
+### Watch mode
+
+Pass `--watch` / `-w` on the root command or any provider subcommand to refresh
+the view every 60 seconds until you hit Ctrl+C (or `q`). In a terminal a
+pulsating status line shows the countdown to the next refresh; press **`r`** to
+refresh immediately, or **`q`** (or Ctrl+C) to close. The previous frame is
+cleared before each redraw. With `--json` / `--yaml` each tick emits a new
+document (no status line).
 
 ### Machine-readable output
 
@@ -139,8 +152,9 @@ Per-provider notes:
 
 These are all **undocumented** endpoints used by the respective official CLIs;
 they may change without notice. Please don't poll them aggressively — Claude's
-endpoint in particular rate-limits hard, so query no faster than once every few
-minutes.
+endpoint in particular rate-limits hard. `--watch` refreshes every 60 seconds,
+which is the floor you should use; avoid stacking extra watchers or shorter
+custom loops on top of it.
 
 ## License
 

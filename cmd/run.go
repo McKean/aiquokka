@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/McKean/aiquokka/internal/usage"
@@ -42,20 +44,68 @@ type provider struct {
 }
 
 // run executes a single provider fetch and renders the result honoring --json.
+// With --watch, it refreshes every watchInterval until interrupted.
 func run(f fetcher) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
+	return maybeWatch(func(parent context.Context) error {
+		ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+		defer cancel()
 
-	report, err := f(ctx)
-	if err != nil {
-		return err
+		report, err := f(ctx)
+		if err != nil {
+			return err
+		}
+
+		if structured() {
+			return emit(report)
+		}
+		usage.Render(os.Stdout, report, time.Now())
+		return nil
+	})
+}
+
+// maybeWatch runs fn once, or repeatedly every watchInterval when --watch is set.
+// Ctrl+C / SIGTERM stops cleanly (exit 0). Interrupt during a fetch cancels it.
+func maybeWatch(fn func(ctx context.Context) error) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return watchLoop(ctx, watch, watchInterval, fn)
+}
+
+// watchLoop is the core of --watch. enabled=false runs fn once.
+// ctx cancellation (e.g. Ctrl+C) ends the loop with a nil error.
+// On a TTY the wait shows a pulsating countdown; press r to refresh early.
+func watchLoop(ctx context.Context, enabled bool, interval time.Duration, fn func(ctx context.Context) error) error {
+	if !enabled {
+		return fn(ctx)
 	}
 
+	for {
+		if err := fn(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		switch waitForRefresh(ctx, interval) {
+		case watchStop:
+			return nil
+		case watchTick, watchManual:
+			clearWatchFrame()
+		}
+	}
+}
+
+// clearWatchFrame prepares the terminal for the next --watch refresh.
+func clearWatchFrame() {
 	if structured() {
-		return emit(report)
+		return
 	}
-	usage.Render(os.Stdout, report, time.Now())
-	return nil
+	if stdoutIsTTY() {
+		// Home cursor and clear the screen so the next frame replaces the last.
+		fmt.Fprint(os.Stdout, "\033[H\033[2J")
+		return
+	}
+	fmt.Fprintln(os.Stdout)
 }
 
 // fetchResult is one provider's outcome in the aggregate view.
@@ -68,17 +118,20 @@ type fetchResult struct {
 // runAll fetches every provider concurrently. On a TTY it shows a fixed-order
 // skeleton for configured providers and rewrites the view as each result
 // arrives. Non-TTY and --json/--yaml wait for every fetch, then emit once.
+// With --watch, the whole view refreshes every watchInterval until interrupted.
 func runAll(providers []provider) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	return maybeWatch(func(parent context.Context) error {
+		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+		defer cancel()
 
-	if structured() {
-		return runAllStructured(ctx, providers)
-	}
-	if stdoutIsTTY() {
-		return runAllLive(ctx, providers)
-	}
-	return runAllBatch(ctx, providers)
+		if structured() {
+			return runAllStructured(ctx, providers)
+		}
+		if stdoutIsTTY() {
+			return runAllLive(ctx, providers)
+		}
+		return runAllBatch(ctx, providers)
+	})
 }
 
 func runAllStructured(ctx context.Context, providers []provider) error {

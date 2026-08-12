@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,3 +78,101 @@ func TestWriteLiveBodyPendingOnlyNoEmptyMessage(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestWatchFlagRegistered(t *testing.T) {
+	cmd := newRootCmd()
+	if cmd.PersistentFlags().Lookup("watch") == nil {
+		t.Fatal("expected --watch flag on root command")
+	}
+	if cmd.PersistentFlags().ShorthandLookup("w") == nil {
+		t.Fatal("expected -w shorthand for --watch")
+	}
+	if watchInterval != 60*time.Second {
+		t.Fatalf("watchInterval = %v, want 60s", watchInterval)
+	}
+}
+
+func TestWatchLoopDisabledRunsOnce(t *testing.T) {
+	var n atomic.Int32
+	err := watchLoop(context.Background(), false, time.Hour, func(ctx context.Context) error {
+		n.Add(1)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n.Load() != 1 {
+		t.Fatalf("calls = %d, want 1", n.Load())
+	}
+}
+
+func TestWatchLoopRepeatsThenStopsOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var n atomic.Int32
+	err := watchLoop(ctx, true, 15*time.Millisecond, func(ctx context.Context) error {
+		if n.Add(1) >= 3 {
+			cancel()
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n.Load() < 3 {
+		t.Fatalf("calls = %d, want >= 3", n.Load())
+	}
+}
+
+func TestWatchLoopCancelDuringWait(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var n atomic.Int32
+	done := make(chan error, 1)
+	go func() {
+		done <- watchLoop(ctx, true, time.Hour, func(ctx context.Context) error {
+			n.Add(1)
+			return nil
+		})
+	}()
+	// First frame runs, then the loop blocks on the hour-long wait.
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchLoop did not return after cancel")
+	}
+	if n.Load() != 1 {
+		t.Fatalf("calls = %d, want 1", n.Load())
+	}
+}
+
+func TestWatchLoopCancelDuringFetch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	err := watchLoop(ctx, true, time.Hour, func(parent context.Context) error {
+		cancel()
+		return parent.Err()
+	})
+	if err != nil {
+		t.Fatalf("cancel during fetch should return nil, got %v", err)
+	}
+}
+
+func TestWatchLoopErrorExits(t *testing.T) {
+	want := errors.New("fetch failed")
+	var n atomic.Int32
+	err := watchLoop(context.Background(), true, 20*time.Millisecond, func(ctx context.Context) error {
+		n.Add(1)
+		return want
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("err = %v, want %v", err, want)
+	}
+	if n.Load() != 1 {
+		t.Fatalf("calls = %d, want 1 (should not retry on error)", n.Load())
+	}
+}

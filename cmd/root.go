@@ -2,6 +2,8 @@
 package cmd
 
 import (
+	"time"
+
 	"github.com/McKean/aiquokka/internal/antigravity"
 	"github.com/McKean/aiquokka/internal/claude"
 	"github.com/McKean/aiquokka/internal/codex"
@@ -28,7 +30,11 @@ var allProviders = []provider{
 var (
 	jsonOut bool
 	yamlOut bool
+	watch   bool
 )
+
+// watchInterval is how long --watch waits between refreshes.
+const watchInterval = 60 * time.Second
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
@@ -43,7 +49,9 @@ func newRootCmd() *cobra.Command {
   aiquokka grok     weekly usage limit
   aiquokka copilot  copilot chat/completions limits
   aiquokka kiro     Kiro CLI monthly credits and overage status
-  aiquokka agy      daily antigravity limits`,
+  aiquokka agy      daily antigravity limits
+
+  --watch           refresh every 60s; press r to refresh now, q/Ctrl+C to stop`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -54,6 +62,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit raw JSON instead of rendered output")
 	root.PersistentFlags().BoolVar(&yamlOut, "yaml", false, "emit raw YAML instead of rendered output")
 	root.PersistentFlags().BoolVar(&yamlOut, "yml", false, "alias for --yaml")
+	root.PersistentFlags().BoolVarP(&watch, "watch", "w", false, "refresh every 60s (r refresh, q close)")
 	root.MarkFlagsMutuallyExclusive("json", "yaml")
 	root.MarkFlagsMutuallyExclusive("json", "yml")
 
