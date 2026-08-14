@@ -60,21 +60,23 @@ func (o oauth) expired(now time.Time) bool {
 	return now.UnixMilli() >= o.ExpiresAt
 }
 
-// loadCredentials prefers ~/.claude/.credentials.json and falls back to the
-// macOS Keychain when the file is absent.
+// loadCredentials prefers ~/.claude/.credentials.json when it contains an
+// OAuth access token and falls back to the macOS Keychain otherwise.
 func loadCredentials() (*oauth, error) {
 	path, err := credentialsPath()
 	if err != nil {
 		return nil, err
 	}
-	if data, err := os.ReadFile(path); err == nil {
+
+	data, fileErr := os.ReadFile(path)
+	if fileErr == nil {
 		o, _, err := parseCredentials(data)
-		if err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", path, err)
+		if err == nil {
+			return o, nil
 		}
-		return o, nil
-	} else if !os.IsNotExist(err) {
-		return nil, err
+		fileErr = fmt.Errorf("parsing %s: %w", path, err)
+	} else if !os.IsNotExist(fileErr) {
+		return nil, fileErr
 	}
 
 	if data, item, err := readKeychainCredentials(); err == nil {
@@ -88,6 +90,9 @@ func loadCredentials() (*oauth, error) {
 		return nil, err
 	}
 
+	if fileErr != nil && !os.IsNotExist(fileErr) {
+		return nil, fileErr
+	}
 	return nil, usage.NotConfigured("no Claude credentials at %s — run `claude` to log in", path)
 }
 

@@ -127,12 +127,12 @@ new token back to the credential file.
 ### Claude Code on macOS
 
 Claude Code stores its OAuth credential in `~/.claude/.credentials.json` or,
-on macOS, the Keychain. Aiquokka prefers the credentials file when it exists.
-Otherwise it reads the `Claude Code-credentials` Keychain item and, when a
-refresh is required, updates that same item while preserving fields it does
-not own. If multiple matching Keychain items exist, it uses the first one.
-This storage format is an implementation detail of Claude Code and may change
-without notice.
+on macOS, the Keychain. Aiquokka prefers the credentials file when it contains
+an OAuth access token. Otherwise it reads the `Claude Code-credentials`
+Keychain item and, when a refresh is required, updates that same item while
+preserving fields it does not own. If multiple matching Keychain items exist,
+it uses the first one. This storage format is an implementation detail of
+Claude Code and may change without notice.
 
 Per-provider notes:
 

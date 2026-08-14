@@ -57,6 +57,34 @@ func TestLoadCredentialsPrefersFileOverKeychain(t *testing.T) {
 	}
 }
 
+func TestLoadCredentialsFallsBackToKeychainWhenFileHasNoToken(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	original := readKeychainCredentials
+	t.Cleanup(func() { readKeychainCredentials = original })
+	readKeychainCredentials = func() ([]byte, []byte, error) {
+		return []byte(`{"accessToken":"keychain-token"}`), []byte("item"), nil
+	}
+
+	o, err := loadCredentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.AccessToken != "keychain-token" {
+		t.Fatalf("AccessToken = %q, want keychain-token", o.AccessToken)
+	}
+	if string(o.source.keychainItem) != "item" {
+		t.Fatalf("keychainItem = %q, want item", o.source.keychainItem)
+	}
+}
+
 func TestLoadCredentialsFallsBackToKeychain(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
