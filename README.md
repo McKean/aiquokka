@@ -112,7 +112,7 @@ machine and queries the same usage endpoint that CLI uses.
 
 | Command | Credentials | Endpoint |
 | --- | --- | --- |
-| `claude` | macOS Keychain, or `~/.claude/.credentials.json` (OAuth) | `api.anthropic.com/api/oauth/usage` |
+| `claude` | `~/.claude/.credentials.json`, or macOS Keychain (OAuth) | `api.anthropic.com/api/oauth/usage` |
 | `codex`  | `~/.codex/auth.json` (ChatGPT OAuth) | `chatgpt.com/backend-api/wham/usage` |
 | `kimi`   | `~/.kimi-code` / `~/.kimi` OAuth, or `$KIMI_API_KEY` | `api.kimi.com/coding/v1/usages` |
 | `grok`   | `~/.grok/auth.json` (xAI OIDC) | `cli-chat-proxy.grok.com/v1/billing?format=credits` |
@@ -126,11 +126,13 @@ new token back to the credential file.
 
 ### Claude Code on macOS
 
-Claude Code stores its OAuth credential in the macOS Keychain. Aiquokka reads
-the `Claude Code-credentials` item and, when a refresh is required, updates
-that same item while preserving fields it does not own. If multiple matching
-items exist, it uses the first one. This storage format is an implementation
-detail of Claude Code and may change without notice.
+Claude Code stores its OAuth credential in `~/.claude/.credentials.json` or,
+on macOS, the Keychain. Aiquokka prefers the credentials file when it exists.
+Otherwise it reads the `Claude Code-credentials` Keychain item and, when a
+refresh is required, updates that same item while preserving fields it does
+not own. If multiple matching Keychain items exist, it uses the first one.
+This storage format is an implementation detail of Claude Code and may change
+without notice.
 
 Per-provider notes:
 

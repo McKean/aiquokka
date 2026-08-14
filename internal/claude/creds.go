@@ -48,6 +48,7 @@ var errKeychainCredentialsNotFound = errors.New("Claude Code Keychain credential
 
 // These private seams let the refresh path be tested without touching a real
 // Keychain. Production code always uses the platform implementations.
+var readKeychainCredentials = loadKeychainCredentials
 var readKeychainItem = loadKeychainCredential
 var updateKeychainItem = persistKeychainCredentials
 
@@ -59,9 +60,24 @@ func (o oauth) expired(now time.Time) bool {
 	return now.UnixMilli() >= o.ExpiresAt
 }
 
-// loadCredentials reads and parses the Claude credentials file.
+// loadCredentials prefers ~/.claude/.credentials.json and falls back to the
+// macOS Keychain when the file is absent.
 func loadCredentials() (*oauth, error) {
-	if data, item, err := loadKeychainCredentials(); err == nil {
+	path, err := credentialsPath()
+	if err != nil {
+		return nil, err
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		o, _, err := parseCredentials(data)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", path, err)
+		}
+		return o, nil
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	if data, item, err := readKeychainCredentials(); err == nil {
 		o, _, err := parseCredentials(data)
 		if err != nil {
 			return nil, err
@@ -72,22 +88,7 @@ func loadCredentials() (*oauth, error) {
 		return nil, err
 	}
 
-	path, err := credentialsPath()
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, usage.NotConfigured("no Claude credentials at %s — run `claude` to log in", path)
-		}
-		return nil, err
-	}
-	o, _, err := parseCredentials(data)
-	if err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", path, err)
-	}
-	return o, nil
+	return nil, usage.NotConfigured("no Claude credentials at %s — run `claude` to log in", path)
 }
 
 // mergeCredentials preserves fields owned by Claude Code while applying the
