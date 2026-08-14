@@ -35,7 +35,7 @@ type limit struct {
 // Fetch reads local credentials (refreshing the token if needed) and returns
 // the current Claude subscription usage.
 func Fetch(ctx context.Context) (*usage.Report, error) {
-	creds, err := loadCredentials()
+	creds, err := loadCredentials(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -1,15 +1,17 @@
-//go:build !darwin || !cgo
+//go:build !darwin
 
 package claude
 
-func loadKeychainCredentials() ([]byte, []byte, error) {
+import "context"
+
+func loadKeychainCredentials(context.Context) ([]byte, []byte, error) {
 	return nil, nil, errKeychainCredentialsNotFound
 }
 
-func persistKeychainCredentials([]byte, []byte) error {
+func persistKeychainCredentials(context.Context, []byte, []byte) error {
 	return errKeychainCredentialsNotFound
 }
 
-func loadKeychainCredential([]byte) ([]byte, error) {
+func loadKeychainCredential(context.Context, []byte) ([]byte, error) {
 	return nil, errKeychainCredentialsNotFound
 }

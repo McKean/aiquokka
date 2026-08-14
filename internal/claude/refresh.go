@@ -55,7 +55,7 @@ func refresh(ctx context.Context, o *oauth) error {
 		if rr.ExpiresIn > 0 {
 			o.ExpiresAt = time.Now().Add(time.Duration(rr.ExpiresIn) * time.Second).UnixMilli()
 		}
-		if err := persist(o); err != nil {
+		if err := persist(ctx, o); err != nil {
 			// Non-fatal: we still have a usable in-memory token.
 			fmt.Fprintf(os.Stderr, "aiquokka: warning: could not persist refreshed token: %v\n", err)
 		}
@@ -94,9 +94,9 @@ func doRefresh(ctx context.Context, endpoint string, form url.Values) (*refreshR
 
 // persist writes the updated oauth block back into the credentials file,
 // preserving any other keys already present.
-func persist(o *oauth) error {
+func persist(ctx context.Context, o *oauth) error {
 	if len(o.source.keychainItem) != 0 {
-		data, err := readKeychainItem(o.source.keychainItem)
+		data, err := readKeychainItem(ctx, o.source.keychainItem)
 		if err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func persist(o *oauth) error {
 		if err != nil {
 			return err
 		}
-		return updateKeychainItem(o.source.keychainItem, data)
+		return updateKeychainItem(ctx, o.source.keychainItem, data)
 	}
 
 	path, err := credentialsPath()

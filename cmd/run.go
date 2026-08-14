@@ -65,11 +65,41 @@ func run(f fetcher) error {
 
 // maybeWatch runs fn once, or repeatedly every watchInterval when --watch is set.
 // Ctrl+C / SIGTERM stops cleanly (exit 0). Interrupt during a fetch cancels it.
+// If work is stuck outside the cancelled context (a Keychain dialog), a second
+// Ctrl+C or a short grace period force-exits.
 func maybeWatch(fn func(ctx context.Context) error) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
+
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		select {
+		case <-sigs:
+			stop()
+			select {
+			case <-sigs:
+				os.Exit(130)
+			case <-done:
+			case <-time.After(stuckInterruptGrace):
+				os.Exit(130)
+			}
+		case <-ctx.Done():
+		}
+	}()
+
 	return watchLoop(ctx, watch, watchInterval, fn)
 }
+
+// stuckInterruptGrace is how long we wait after Ctrl+C for in-flight work to
+// unwind before killing the process. Long enough for a context-aware fetch to
+// return; short enough that a Keychain dialog cannot trap the terminal.
+const stuckInterruptGrace = 500 * time.Millisecond
 
 // watchLoop is the core of --watch. enabled=false runs fn once.
 // ctx cancellation (e.g. Ctrl+C) ends the loop with a nil error.

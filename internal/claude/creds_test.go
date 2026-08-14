@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -41,11 +42,11 @@ func TestLoadCredentialsPrefersFileOverKeychain(t *testing.T) {
 
 	original := readKeychainCredentials
 	t.Cleanup(func() { readKeychainCredentials = original })
-	readKeychainCredentials = func() ([]byte, []byte, error) {
+	readKeychainCredentials = func(context.Context) ([]byte, []byte, error) {
 		return []byte(`{"accessToken":"keychain-token"}`), []byte("item"), nil
 	}
 
-	o, err := loadCredentials()
+	o, err := loadCredentials(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,11 +70,11 @@ func TestLoadCredentialsFallsBackToKeychainWhenFileHasNoToken(t *testing.T) {
 
 	original := readKeychainCredentials
 	t.Cleanup(func() { readKeychainCredentials = original })
-	readKeychainCredentials = func() ([]byte, []byte, error) {
+	readKeychainCredentials = func(context.Context) ([]byte, []byte, error) {
 		return []byte(`{"accessToken":"keychain-token"}`), []byte("item"), nil
 	}
 
-	o, err := loadCredentials()
+	o, err := loadCredentials(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,11 +91,11 @@ func TestLoadCredentialsFallsBackToKeychain(t *testing.T) {
 
 	original := readKeychainCredentials
 	t.Cleanup(func() { readKeychainCredentials = original })
-	readKeychainCredentials = func() ([]byte, []byte, error) {
+	readKeychainCredentials = func(context.Context) ([]byte, []byte, error) {
 		return []byte(`{"accessToken":"keychain-token"}`), []byte("item"), nil
 	}
 
-	o, err := loadCredentials()
+	o, err := loadCredentials(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,16 +115,16 @@ func TestPersistKeychainMergesIntoFreshCredential(t *testing.T) {
 		updateKeychainItem = originalUpdate
 	})
 
-	readKeychainItem = func([]byte) ([]byte, error) {
+	readKeychainItem = func(context.Context, []byte) ([]byte, error) {
 		return []byte(`{"claudeAiOauth":{"accessToken":"old","refreshToken":"old-refresh","expiresAt":1,"claudeChangedThis":"keep"}}`), nil
 	}
 	var written []byte
-	updateKeychainItem = func(_ []byte, data []byte) error {
+	updateKeychainItem = func(_ context.Context, _ []byte, data []byte) error {
 		written = data
 		return nil
 	}
 
-	err := persist(&oauth{
+	err := persist(context.Background(), &oauth{
 		AccessToken:  "new",
 		RefreshToken: "new-refresh",
 		ExpiresAt:    2,

@@ -2,6 +2,7 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,7 +63,7 @@ func (o oauth) expired(now time.Time) bool {
 
 // loadCredentials prefers ~/.claude/.credentials.json when it contains an
 // OAuth access token and falls back to the macOS Keychain otherwise.
-func loadCredentials() (*oauth, error) {
+func loadCredentials(ctx context.Context) (*oauth, error) {
 	path, err := credentialsPath()
 	if err != nil {
 		return nil, err
@@ -79,7 +80,7 @@ func loadCredentials() (*oauth, error) {
 		return nil, fileErr
 	}
 
-	if data, item, err := readKeychainCredentials(); err == nil {
+	if data, item, err := readKeychainCredentials(ctx); err == nil {
 		o, _, err := parseCredentials(data)
 		if err != nil {
 			return nil, err
