@@ -45,7 +45,6 @@ type credentialSource struct {
 }
 
 var errKeychainCredentialsNotFound = errors.New("Claude Code Keychain credentials not found")
-var errMultipleKeychainCredentials = errors.New("multiple Claude Code credentials found in Keychain")
 
 // These private seams let the refresh path be tested without touching a real
 // Keychain. Production code always uses the platform implementations.

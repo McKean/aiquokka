@@ -127,12 +127,10 @@ new token back to the credential file.
 ### Claude Code on macOS
 
 Claude Code stores its OAuth credential in the macOS Keychain. Aiquokka reads
-the single `Claude Code-credentials` item and, when a refresh is required,
-updates that same item while preserving fields it does not own. It deliberately
-refuses to choose between multiple matching Keychain items: log out of unused
-Claude Code accounts first, then log in to the account whose limits you want to
-query. This storage format is an implementation detail of Claude Code and may
-change without notice.
+the `Claude Code-credentials` item and, when a refresh is required, updates
+that same item while preserving fields it does not own. If multiple matching
+items exist, it uses the first one. This storage format is an implementation
+detail of Claude Code and may change without notice.
 
 Per-provider notes:
 

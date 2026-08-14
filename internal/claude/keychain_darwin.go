@@ -19,9 +19,6 @@ func loadKeychainCredentials() ([]byte, []byte, error) {
 	if status == C.errSecItemNotFound {
 		return nil, nil, errKeychainCredentialsNotFound
 	}
-	if status == C.errSecDuplicateItem {
-		return nil, nil, errMultipleKeychainCredentials
-	}
 	if status != C.errSecSuccess {
 		return nil, nil, fmt.Errorf("reading Claude Code credentials from Keychain: OSStatus %d", status)
 	}

@@ -17,7 +17,7 @@ OSStatus findClaudeCredentials(CFDataRef *data, CFDataRef *persistentRef) {
   if (status != errSecSuccess) return status;
 
   CFArrayRef matches = (CFArrayRef)result;
-  if (CFArrayGetCount(matches) != 1) { CFRelease(result); return errSecDuplicateItem; }
+  if (CFArrayGetCount(matches) < 1) { CFRelease(result); return errSecItemNotFound; }
   *persistentRef = (CFDataRef)CFArrayGetValueAtIndex(matches, 0);
   if (*persistentRef == NULL) { CFRelease(result); return errSecDecode; }
   CFRetain(*persistentRef);
