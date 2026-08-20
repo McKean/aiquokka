@@ -44,3 +44,46 @@ func TestRenderAlignedUsesSharedBarColumn(t *testing.T) {
 		t.Fatalf("bar columns differ: short=%d long=%d", got, want)
 	}
 }
+
+func TestRemainingBarFullThenEmpty(t *testing.T) {
+	full := remainingBar(12.34, "USD", 8)
+	if !strings.Contains(full, "$12.34") {
+		t.Fatalf("remainingBar(12.34) = %q, want amount", full)
+	}
+	if !strings.Contains(full, "[████████]") {
+		t.Fatalf("remainingBar(12.34) should be full: %q", full)
+	}
+
+	empty := remainingBar(0, "USD", 8)
+	if !strings.Contains(empty, "[░░░░░░░░]") {
+		t.Fatalf("remainingBar(0) should be empty: %q", empty)
+	}
+	if !strings.Contains(empty, "$0.00") {
+		t.Fatalf("remainingBar(0) = %q, want amount", empty)
+	}
+}
+
+func TestRenderWindowRemaining(t *testing.T) {
+	remaining := 5.0
+	win := Window{Label: "Balance", Remaining: &remaining, Currency: "USD"}
+	out := renderWindow(win, time.Now(), 8)
+	if !strings.Contains(out, "$5.00") {
+		t.Fatalf("renderWindow remaining = %q, want amount", out)
+	}
+}
+
+func TestFormatMoney(t *testing.T) {
+	cases := map[string]string{
+		"CNY": "¥1.50",
+		"USD": "$1.50",
+		"EUR": "€1.50",
+		"GBP": "£1.50",
+		"JPY": "1.50 JPY",
+		"":    "1.50",
+	}
+	for currency, want := range cases {
+		if got := FormatMoney(1.5, currency); got != want {
+			t.Errorf("FormatMoney(1.5, %q) = %q, want %q", currency, got, want)
+		}
+	}
+}

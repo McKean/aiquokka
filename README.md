@@ -1,8 +1,8 @@
 # aiquokka
 
 One command to see the usage limits of all your AI coding subscriptions —
-Claude, Codex, Kimi, Copilot, Grok, Kiro, and Antigravity — reading the credentials each official CLI
-already stores. No tokens to paste, no config.
+Claude, Codex, Kimi, Copilot, Grok, DeepSeek, Kiro, and Antigravity — reading the credentials each official CLI
+already stores (or your existing API key). No tokens to paste, no config.
 
 ![aiquokka demo](docs/demo.gif)
 
@@ -37,6 +37,7 @@ aiquokka codex     # weekly limit + remaining resets
 aiquokka kimi      # 5-hour and weekly limits
 aiquokka grok      # weekly usage limit + subscription tier
 aiquokka copilot   # copilot chat/completions limits
+aiquokka deepseek  # account balance (remaining money)
 aiquokka kiro      # Kiro CLI monthly credits and overage status
 aiquokka agy       # daily antigravity limits
 
@@ -117,12 +118,13 @@ machine and queries the same usage endpoint that CLI uses.
 | `kimi`   | `~/.kimi-code` / `~/.kimi` OAuth, or `$KIMI_API_KEY` | `api.kimi.com/coding/v1/usages` |
 | `grok`   | `~/.grok/auth.json` (xAI OIDC) | `cli-chat-proxy.grok.com/v1/billing?format=credits` |
 | `copilot`| `~/.config/github-copilot/{apps,hosts}.json` | `api.github.com/copilot_internal/user` |
+| `deepseek` | `$DEEPSEEK_API_KEY` | `api.deepseek.com/user/balance` |
 | `kiro`   | Kiro CLI credential store (via `kiro-cli /usage`) | `q.<region>.amazonaws.com/getUsageLimits` |
 | `agy`    | `~/.gemini/antigravity-cli/antigravity-oauth-token` | `daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` |
 
-Every provider that uses a short-lived OAuth access token (all except a static
-Kimi key) **refreshes automatically** when the token has expired and writes the
-new token back to the credential file.
+Every provider that uses a short-lived OAuth access token (all except the
+static API-key providers Kimi and DeepSeek) **refreshes automatically** when
+the token has expired and writes the new token back to the credential file.
 
 ### Claude Code on macOS
 
@@ -149,6 +151,7 @@ Per-provider notes:
   refresh tokens, so if both `grok` and `aiquokka` refresh the most recent one
   wins; a "run grok to re-login" message means the stored token was superseded.
 - **Copilot** fetches usage across Chat, Completions, and Premium Interactions based on the IDE or GitHub CLI stored credential.
+- **DeepSeek** reads `DEEPSEEK_API_KEY` (sk-…) and reports the account balance. The balance is money, not a usage limit, so the bar is full while any balance remains and empties at zero — the amount is the number that matters. The granted and topped-up portions are shown beneath it.
 - **Kiro** runs the installed CLI’s built-in `/usage` command non-interactively, so Kiro retains ownership of credentials and token refresh. It reports monthly credits, plan, reset date, and overage status.
 - **Antigravity** reads the OAuth token stored in `~/.gemini/antigravity-cli/antigravity-oauth-token` and impersonates the CLI's first-party OAuth client to access the restricted quota endpoint.
 

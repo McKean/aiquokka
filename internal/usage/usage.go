@@ -17,6 +17,14 @@ type Window struct {
 	// Both nil when only a percentage is available.
 	Used  *int64 `json:"used,omitempty" yaml:"used,omitempty"`
 	Limit *int64 `json:"limit,omitempty" yaml:"limit,omitempty"`
+	// Remaining is the amount still available for a prepaid, balance-style
+	// allowance where the provider reports an absolute balance but no starting
+	// amount or limit (e.g. DeepSeek's account balance). When set — and
+	// UsedPercent/Used/Limit are not — the renderer draws a full "remaining"
+	// bar labelled with the amount; spending it runs the bar down toward zero.
+	Remaining *float64 `json:"remaining,omitempty" yaml:"remaining,omitempty"`
+	// Currency is the ISO currency code for Remaining (e.g. "CNY", "USD").
+	Currency string `json:"currency,omitempty" yaml:"currency,omitempty"`
 	// Duration is the full length of the window (e.g. 5h, 7d). When set along
 	// with ResetsAt it lets the renderer draw a linear-pace marker showing where
 	// even consumption would put you at the current time.

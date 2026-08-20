@@ -210,7 +210,7 @@ func runAllBatch(ctx context.Context, providers []provider) error {
 		usage.RenderAligned(os.Stdout, r.report, now, labelWidth)
 	}
 	if shown == 0 {
-		fmt.Fprintln(os.Stdout, "No configured providers found. Log in with claude, codex, kimi, or grok.")
+		fmt.Fprintln(os.Stdout, "No configured providers found. Log in to at least one provider.")
 	}
 	return nil
 }
@@ -346,7 +346,7 @@ func writeLiveBody(b *strings.Builder, slots []slot, now time.Time) {
 		}
 	}
 	if shown == 0 && allDone {
-		b.WriteString("No configured providers found. Log in with claude, codex, kimi, or grok.\n")
+		b.WriteString("No configured providers found. Log in to at least one provider.\n")
 	}
 }
 

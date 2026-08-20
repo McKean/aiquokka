@@ -68,6 +68,8 @@ func renderWindow(win Window, now time.Time, maxLabel int) string {
 		pct := float64(*win.Used) / float64(*win.Limit) * 100
 		b.WriteString(bar(pct, pace, 24))
 		fmt.Fprintf(&b, " %5.1f%% (%d/%d)", pct, *win.Used, *win.Limit)
+	} else if win.Remaining != nil {
+		b.WriteString(remainingBar(*win.Remaining, win.Currency, 24))
 	} else {
 		b.WriteString(strings.Repeat(" ", 24) + "     ?")
 	}
@@ -126,6 +128,47 @@ func bar(pct, pace float64, width int) string {
 	return fmt.Sprintf("%s[%s]%s", color, cells.String(), colorReset)
 }
 
+// remainingBar draws a bar for a prepaid balance. The starting amount is
+// unknown, so the bar is full whenever any balance remains and empties at
+// zero: the amount printed next to it is the source of truth.
+func remainingBar(amount float64, currency string, width int) string {
+	filled := width
+	if amount <= 0 {
+		filled = 0
+	}
+	color := colorRemaining
+	if amount <= 0 {
+		color = colorRed
+	}
+	var cells strings.Builder
+	for i := 0; i < filled; i++ {
+		cells.WriteString("█")
+	}
+	for i := filled; i < width; i++ {
+		cells.WriteString("░")
+	}
+	return fmt.Sprintf("%s[%s]%s %s", color, cells.String(), colorReset, FormatMoney(amount, currency))
+}
+
+// FormatMoney renders an amount with a familiar symbol for common currencies.
+func FormatMoney(amount float64, currency string) string {
+	switch strings.ToUpper(currency) {
+	case "CNY":
+		return fmt.Sprintf("¥%.2f", amount)
+	case "USD":
+		return fmt.Sprintf("$%.2f", amount)
+	case "EUR":
+		return fmt.Sprintf("€%.2f", amount)
+	case "GBP":
+		return fmt.Sprintf("£%.2f", amount)
+	default:
+		if currency == "" {
+			return fmt.Sprintf("%.2f", amount)
+		}
+		return fmt.Sprintf("%.2f %s", amount, currency)
+	}
+}
+
 // humanizeReset formats a reset time relative to now, e.g. "in 3h12m (18:40)".
 func humanizeReset(t, now time.Time) string {
 	d := t.Sub(now)
@@ -148,11 +191,12 @@ func humanizeReset(t, now time.Time) string {
 }
 
 const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorYellow = "\033[33m"
-	colorGreen  = "\033[32m"
-	colorPace   = "\033[96m" // bright cyan — the on-track pace marker
+	colorReset     = "\033[0m"
+	colorRed       = "\033[31m"
+	colorYellow    = "\033[33m"
+	colorGreen     = "\033[32m"
+	colorPace      = "\033[96m" // bright cyan — the on-track pace marker
+	colorRemaining = "\033[92m" // bright green — a remaining prepaid balance
 )
 
 // stripANSI removes color codes for length calculations.
