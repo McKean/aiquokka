@@ -2,6 +2,8 @@ package kiro
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -53,5 +55,40 @@ func TestParseUsageUsesNextYearForPastReset(t *testing.T) {
 func TestParseUsageRejectsChangedOutput(t *testing.T) {
 	if _, err := parseUsage("Estimated Usage | KIRO PRO", time.Now()); err == nil {
 		t.Fatal("expected missing credits error")
+	}
+}
+
+func TestParseUsageAcceptsISOResetDate(t *testing.T) {
+	now := time.Date(2026, time.September, 17, 12, 0, 0, 0, time.UTC)
+	report, err := parseUsage("Estimated Usage | resets on 2026-10-01 | KIRO FREE\nCredits (0.04 of 50 covered in plan)\n", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC)
+	if !report.Windows[0].ResetsAt.Equal(want) {
+		t.Fatalf("reset = %s, want %s", report.Windows[0].ResetsAt, want)
+	}
+}
+
+func TestChatBinaryFallback(t *testing.T) {
+	dir := t.TempDir()
+	cli := filepath.Join(dir, "kiro-cli")
+	chat := filepath.Join(dir, "kiro-cli-chat")
+	for _, p := range []string{cli, chat} {
+		if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "kiro-cli")
+	if err := os.Symlink(cli, link); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := chatBinary(link)
+	want, _ := filepath.EvalSymlinks(chat)
+	if !ok || got != want {
+		t.Fatalf("chatBinary = %q, %v; want %q", got, ok, want)
+	}
+	if _, ok := chatBinary(filepath.Join(t.TempDir(), "kiro-cli")); ok {
+		t.Fatal("expected no chat binary next to a missing kiro-cli")
 	}
 }
