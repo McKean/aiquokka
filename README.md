@@ -13,6 +13,8 @@ already stores (or your existing API key). No tokens to paste, no config.
 - **Auto token refresh** — expired OAuth tokens are refreshed and written back.
 - **Scriptable** — `--json` / `--yaml` for machine-readable output.
 - **Live watch** — `--watch` / `-w` refreshes the view every 60 seconds.
+- **Menu bar app** — `aiquokka tray` keeps your limits in the macOS menu bar or
+  Linux system tray and alerts you before you hit them.
 
 ## Install
 
@@ -41,6 +43,8 @@ aiquokka deepseek  # account balance (remaining money)
 aiquokka kiro      # Kiro CLI monthly credits and overage status
 aiquokka agy       # daily antigravity limits
 aiquokka zai       # Z.ai usage bundles and cash balance
+
+aiquokka tray      # menu bar (macOS) / system tray (Linux) app
 
 aiquokka --watch           # refresh all providers every 60s
 aiquokka claude -w         # watch a single provider
@@ -75,6 +79,44 @@ pulsating status line shows the countdown to the next refresh; press **`r`** to
 refresh immediately, or **`q`** (or Ctrl+C) to close. The previous frame is
 cleared before each redraw. With `--json` / `--yaml` each tick emits a new
 document (no status line).
+
+### Menu bar / system tray
+
+`aiquokka tray` (or `aiquokka bar`) runs aiquokka in the macOS menu bar or in
+the Linux system tray. It checks your limits in the background and shows them
+in a small menu, with the same data as the terminal view.
+
+| Terminal (`aiquokka`) | Menu bar (`aiquokka tray`) |
+| :---: | :---: |
+| <img src="docs/images/cli.png" alt="aiquokka in the terminal" width="420"> | <img src="docs/images/tray-menu.png" alt="aiquokka in the macOS menu bar" width="300"> |
+
+- **Top bar** — a small ring and your highest usage right now (for example `44%`).
+- **One table for all providers** — each provider has its logo, and each window
+  has a usage bar, the percent and the reset time. All bars start in the same
+  column, so it is easy to compare them.
+- **Pace marker** — the small vertical line on a bar shows where even usage
+  would put you now (see [The pace marker](#the-pace-marker)).
+- **Alerts** — a desktop notification when a window reaches the alert level
+  (default 80%), again when it reaches 100%, and when a window resets.
+- **Preferences** — change the alert level, the refresh interval and the
+  notifications from the menu. aiquokka saves these choices in
+  `tray.json` in your user config folder and uses them next time. Flags on the
+  command line win over the saved choices.
+
+```sh
+aiquokka tray                  # refresh every 60s, alert at 80%
+aiquokka tray --interval 2m    # refresh every 2 minutes (1m is the minimum)
+aiquokka tray --threshold 90   # alert at 90%
+aiquokka tray --notify=false   # no desktop notifications
+aiquokka tray -p claude        # watch only one provider
+```
+
+On Linux the menu uses plain text rows with a small ring icon, because tray
+hosts there do not show wide images in menus.
+
+Provider logos come from [LobeHub Icons](https://github.com/lobehub/lobe-icons)
+(MIT). The logos are trademarks of their owners and are only used to show which
+provider a row belongs to.
 
 ### Machine-readable output
 

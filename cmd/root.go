@@ -81,6 +81,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newKiroCmd())
 	root.AddCommand(newAntigravityCmd())
 	root.AddCommand(newZaiCmd())
+	root.AddCommand(newTrayCmd())
 	return root
 }
 
