@@ -10,10 +10,11 @@ import (
 )
 
 type traySettings struct {
-	Interval    string `json:"interval,omitempty"`
-	Notify      *bool  `json:"notify,omitempty"`
-	Threshold   *int   `json:"threshold,omitempty"`
-	NotifyReset *bool  `json:"notify_reset,omitempty"`
+	Interval    string  `json:"interval,omitempty"`
+	Notify      *bool   `json:"notify,omitempty"`
+	Threshold   *int    `json:"threshold,omitempty"`
+	NotifyReset *bool   `json:"notify_reset,omitempty"`
+	Pinned      *string `json:"pinned,omitempty"`
 }
 
 func defaultTraySettingsPath() string {
@@ -53,6 +54,9 @@ func loadTraySettings(path string, cfg trayConfig, changed func(string) bool) (t
 	if s.NotifyReset != nil && !changed("notify-reset") {
 		cfg.notifyReset = *s.NotifyReset
 	}
+	if s.Pinned != nil && !changed("pin") {
+		cfg.pinned = *s.Pinned
+	}
 	return cfg, nil
 }
 
@@ -65,6 +69,7 @@ func saveTraySettings(path string, cfg trayConfig) error {
 		Notify:      &cfg.notify,
 		Threshold:   &cfg.threshold,
 		NotifyReset: &cfg.notifyReset,
+		Pinned:      &cfg.pinned,
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {

@@ -23,6 +23,7 @@ type trayConfig struct {
 	notify      bool
 	threshold   int
 	notifyReset bool
+	pinned      string
 }
 
 var defaultTrayConfig = trayConfig{
@@ -58,6 +59,28 @@ func levelFor(pct float64, threshold int) limitLevel {
 	default:
 		return levelOK
 	}
+}
+
+func canonicalProvider(name string) (string, bool) {
+	for _, p := range allProviders {
+		if strings.EqualFold(p.name, name) {
+			return p.name, true
+		}
+	}
+	return "", false
+}
+
+func pinFor(pinned string, providers []provider) string {
+	name, ok := canonicalProvider(pinned)
+	if !ok {
+		return ""
+	}
+	for _, p := range providers {
+		if p.name == name {
+			return name
+		}
+	}
+	return ""
 }
 
 func windowPercent(w usage.Window) (float64, bool) {
@@ -107,6 +130,13 @@ and reused on the next launch; flags passed explicitly take precedence.`,
 			if !validThreshold(cfg.threshold) {
 				return fmt.Errorf("--threshold must be between 1 and 100, got %d", cfg.threshold)
 			}
+			if cfg.pinned != "" {
+				name, ok := canonicalProvider(cfg.pinned)
+				if !ok {
+					return fmt.Errorf("--pin: unknown provider %q", cfg.pinned)
+				}
+				cfg.pinned = name
+			}
 
 			path := defaultTraySettingsPath()
 			merged, err := loadTraySettings(path, cfg, cmd.Flags().Changed)
@@ -114,6 +144,7 @@ and reused on the next launch; flags passed explicitly take precedence.`,
 				fmt.Fprintf(os.Stderr, "aiquokka: ignoring tray settings: %v\n", err)
 				merged = cfg
 			}
+			merged.pinned = pinFor(merged.pinned, providers)
 
 			app := newTrayApp(providers, merged)
 			app.settingsPath = path
@@ -126,6 +157,7 @@ and reused on the next launch; flags passed explicitly take precedence.`,
 	cmd.Flags().IntVar(&cfg.threshold, "threshold", defaultTrayConfig.threshold, "percentage threshold (1-100) to trigger notifications")
 	cmd.Flags().BoolVar(&cfg.notifyReset, "notify-reset", defaultTrayConfig.notifyReset, "send desktop notifications when a window resets")
 	cmd.Flags().StringVarP(&specificProvider, "provider", "p", "", "watch only a specific provider (e.g. claude, agy, codex)")
+	cmd.Flags().StringVar(&cfg.pinned, "pin", "", "provider shown in the menu bar (e.g. claude); default: the highest of all")
 
 	return cmd
 }
@@ -137,6 +169,7 @@ type trayApp struct {
 	notify       bool
 	threshold    int
 	notifyReset  bool
+	pinned       string
 	settingsPath string
 
 	alertedWindows map[string]limitLevel
@@ -161,6 +194,7 @@ func newTrayApp(providers []provider, cfg trayConfig) *trayApp {
 		notify:         cfg.notify,
 		threshold:      cfg.threshold,
 		notifyReset:    cfg.notifyReset,
+		pinned:         cfg.pinned,
 		alertedWindows: make(map[string]limitLevel),
 		lastResetTimes: make(map[string]time.Time),
 		send:           sendDesktopNotification,
@@ -189,7 +223,7 @@ func sendDesktopNotification(title, body string, urgent bool) {
 }
 
 func (a *trayApp) config() trayConfig {
-	return trayConfig{interval: a.interval, notify: a.notify, threshold: a.threshold, notifyReset: a.notifyReset}
+	return trayConfig{interval: a.interval, notify: a.notify, threshold: a.threshold, notifyReset: a.notifyReset, pinned: a.pinned}
 }
 
 func (a *trayApp) persist() {
@@ -319,7 +353,11 @@ func (a *trayApp) fetchAndUpdate() {
 	}
 
 	s := summarize(results, a.threshold)
-	a.updateStatusItem(s, now)
+	if a.pinned != "" {
+		a.updatePinnedStatusItem(pinnedStatus(results, a.pinned), now)
+	} else {
+		a.updateStatusItem(s, now)
+	}
 	a.rebuildMenu(results, now, s)
 }
 
@@ -345,6 +383,83 @@ func (a *trayApp) updateStatusItem(s traySummary, now time.Time) {
 		systray.SetTooltip(fmt.Sprintf("aiquokka: %s %s at %s%s · alert at %d%%",
 			s.highestProvider, s.highestWindow, formatPct(s.highestPct), resetInfo, a.threshold))
 	}
+}
+
+type pinnedView struct {
+	provider   string
+	configured bool
+	err        error
+	pct        float64
+	window     string
+	resetsAt   time.Time
+}
+
+func pinnedStatus(results []fetchResult, provider string) pinnedView {
+	v := pinnedView{provider: provider, pct: -1}
+	for _, res := range results {
+		if res.name != provider {
+			continue
+		}
+		if res.err != nil {
+			if !usage.IsNotConfigured(res.err) {
+				v.configured, v.err = true, res.err
+			}
+			return v
+		}
+		v.configured = true
+		for _, w := range res.report.Windows {
+			if pct, ok := windowPercent(w); ok && pct > v.pct {
+				v.pct, v.window, v.resetsAt = pct, w.Label, w.ResetsAt
+			}
+		}
+		return v
+	}
+	return v
+}
+
+func (a *trayApp) updatePinnedStatusItem(v pinnedView, now time.Time) {
+	logo := logoGlyph(v.provider)
+	switch {
+	case !v.configured:
+		systray.SetTemplateIcon(logo.template, logo.regular)
+		systray.SetTitle(" —")
+		systray.SetTooltip(fmt.Sprintf("aiquokka: %s is not configured", v.provider))
+	case v.err != nil:
+		systray.SetTemplateIcon(logo.template, logo.regular)
+		systray.SetTitle(" —")
+		systray.SetTooltip(fmt.Sprintf("aiquokka: %s: %v", v.provider, v.err))
+	case v.pct < 0:
+		systray.SetTemplateIcon(logo.template, logo.regular)
+		systray.SetTitle("")
+		systray.SetTooltip(fmt.Sprintf("aiquokka: %s has no usage percentage", v.provider))
+	default:
+		if levelFor(v.pct, a.threshold) >= levelCritical {
+			logo = alertLogoGlyph(v.provider)
+		}
+		systray.SetTemplateIcon(logo.template, logo.regular)
+		systray.SetTitle(" " + formatPct(v.pct))
+		resetInfo := ""
+		if !v.resetsAt.IsZero() {
+			resetInfo = fmt.Sprintf(", resets %s", usage.HumanizeReset(v.resetsAt, now))
+		}
+		systray.SetTooltip(fmt.Sprintf("aiquokka: %s %s at %s%s · alert at %d%%",
+			v.provider, v.window, formatPct(v.pct), resetInfo, a.threshold))
+	}
+}
+
+func pinChoices(results []fetchResult, pinned string) []string {
+	var names []string
+	seen := map[string]bool{}
+	for _, res := range configuredResults(results) {
+		if !seen[res.name] {
+			seen[res.name] = true
+			names = append(names, res.name)
+		}
+	}
+	if pinned != "" && !seen[pinned] {
+		names = append(names, pinned)
+	}
+	return names
 }
 
 func summaryLine(s traySummary, threshold int) (string, bool) {
@@ -486,6 +601,18 @@ func (a *trayApp) rebuildMenu(results []fetchResult, now time.Time, s traySummar
 		thresholdItems[t] = mThresholdSub.AddSubMenuItemCheckbox(fmt.Sprintf("%d%%", t), "", t == a.threshold)
 	}
 
+	pinLabel := "highest of all"
+	if a.pinned != "" {
+		pinLabel = a.pinned
+	}
+	mPinSub := mSettings.AddSubMenuItem(fmt.Sprintf("Menu bar shows %s", pinLabel), "Choose what the menu bar shows")
+	pinItems := map[string]*systray.MenuItem{
+		"": mPinSub.AddSubMenuItemCheckbox("Highest of all", "The highest usage of all providers", a.pinned == ""),
+	}
+	for _, name := range pinChoices(results, a.pinned) {
+		pinItems[name] = mPinSub.AddSubMenuItemCheckbox(name, "Show only "+name+" in the menu bar", a.pinned == name)
+	}
+
 	mIntervalSub := mSettings.AddSubMenuItem(fmt.Sprintf("Refresh every %s", shortDuration(a.interval)), "Polling interval")
 	intervalItems := make(map[time.Duration]*systray.MenuItem)
 	for _, dur := range trayIntervalChoices {
@@ -502,6 +629,7 @@ func (a *trayApp) rebuildMenu(results []fetchResult, now time.Time, s traySummar
 		quit:        mQuit,
 		thresholds:  thresholdItems,
 		intervals:   intervalItems,
+		pins:        pinItems,
 	})
 }
 
@@ -583,6 +711,7 @@ type trayMenu struct {
 	quit        *systray.MenuItem
 	thresholds  map[int]*systray.MenuItem
 	intervals   map[time.Duration]*systray.MenuItem
+	pins        map[string]*systray.MenuItem
 }
 
 func onClick(ctx context.Context, item *systray.MenuItem, fn func()) {
@@ -617,6 +746,9 @@ func (a *trayApp) listenMenuEvents(ctx context.Context, m trayMenu) {
 	}
 	for d, item := range m.intervals {
 		onClick(ctx, item, func() { a.updateSettings(func() { a.interval = d }) })
+	}
+	for name, item := range m.pins {
+		onClick(ctx, item, func() { a.updateSettings(func() { a.pinned = name }) })
 	}
 	onClick(ctx, m.quit, systray.Quit)
 }

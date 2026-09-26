@@ -91,6 +91,10 @@ in a small menu, with the same data as the terminal view.
 | <img src="docs/images/cli.png" alt="aiquokka in the terminal" width="420"> | <img src="docs/images/tray-menu.png" alt="aiquokka in the macOS menu bar" width="300"> |
 
 - **Top bar** — a small ring and your highest usage right now (for example `44%`).
+  If you only care about one provider, choose it in **Preferences → Menu bar
+  shows** (or use `--pin claude`). Then the top bar shows that provider's logo
+  and its highest usage, and the logo gets a small `!` when it reaches the
+  alert level. The menu still shows all providers.
 - **One table for all providers** — each provider has its logo, and each window
   has a usage bar, the percent and the reset time. All bars start in the same
   column, so it is easy to compare them.
@@ -98,8 +102,8 @@ in a small menu, with the same data as the terminal view.
   would put you now (see [The pace marker](#the-pace-marker)).
 - **Alerts** — a desktop notification when a window reaches the alert level
   (default 80%), again when it reaches 100%, and when a window resets.
-- **Preferences** — change the alert level, the refresh interval and the
-  notifications from the menu. aiquokka saves these choices in
+- **Preferences** — change the alert level, the refresh interval, what the top
+  bar shows and the notifications from the menu. aiquokka saves these choices in
   `tray.json` in your user config folder and uses them next time. Flags on the
   command line win over the saved choices.
 
@@ -109,6 +113,7 @@ aiquokka tray --interval 2m    # refresh every 2 minutes (1m is the minimum)
 aiquokka tray --threshold 90   # alert at 90%
 aiquokka tray --notify=false   # no desktop notifications
 aiquokka tray -p claude        # watch only one provider
+aiquokka tray --pin claude     # watch all, but show only Claude in the top bar
 ```
 
 On Linux the menu uses plain text rows with a small ring icon, because tray

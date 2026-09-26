@@ -9,7 +9,7 @@ import (
 
 func TestTraySettingsRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "aiquokka", "tray.json")
-	saved := trayConfig{interval: 5 * time.Minute, notify: false, threshold: 90, notifyReset: false}
+	saved := trayConfig{interval: 5 * time.Minute, notify: false, threshold: 90, notifyReset: false, pinned: "Claude"}
 	if err := saveTraySettings(path, saved); err != nil {
 		t.Fatal(err)
 	}
@@ -24,16 +24,17 @@ func TestTraySettingsRoundTrip(t *testing.T) {
 
 func TestTraySettingsFlagsWin(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tray.json")
-	if err := saveTraySettings(path, trayConfig{interval: 5 * time.Minute, notify: true, threshold: 90, notifyReset: true}); err != nil {
+	if err := saveTraySettings(path, trayConfig{interval: 5 * time.Minute, notify: true, threshold: 90, notifyReset: true, pinned: "Codex"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := defaultTrayConfig
 	cfg.threshold = 70
-	got, err := loadTraySettings(path, cfg, func(name string) bool { return name == "threshold" })
+	cfg.pinned = "Claude"
+	got, err := loadTraySettings(path, cfg, func(name string) bool { return name == "threshold" || name == "pin" })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.threshold != 70 || got.interval != 5*time.Minute {
+	if got.threshold != 70 || got.interval != 5*time.Minute || got.pinned != "Claude" {
 		t.Errorf("expected flag threshold and saved interval, got %+v", got)
 	}
 }

@@ -254,3 +254,22 @@ func logoGlyph(provider string) glyph {
 	logoCache[provider] = g
 	return g
 }
+
+var alertLogoCache = map[string]glyph{}
+
+func alertLogoGlyph(provider string) glyph {
+	if g, ok := alertLogoCache[provider]; ok {
+		return g
+	}
+	const bx, by = 12.2, 12.2
+	badge := minus(disc(bx, by, 3.8), union(segment(bx, by-2.1, bx, by+0.2, 1.2), disc(bx, by+1.9, 0.7)))
+	logo := empty
+	if paths, ok := providerLogoPaths[provider]; ok {
+		if s, err := logoShape(paths); err == nil {
+			logo = s
+		}
+	}
+	g := makeGlyph(union(minus(logo, disc(bx, by, 5.0)), badge))
+	alertLogoCache[provider] = g
+	return g
+}

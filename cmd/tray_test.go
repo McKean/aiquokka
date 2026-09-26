@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestNewTrayCmd(t *testing.T) {
 		}
 	}
 
-	flags := []string{"interval", "notify", "threshold", "notify-reset", "provider"}
+	flags := []string{"interval", "notify", "threshold", "notify-reset", "provider", "pin"}
 	for _, flag := range flags {
 		if cmd.Flags().Lookup(flag) == nil {
 			t.Errorf("expected flag %q not found on tray command", flag)
@@ -266,4 +267,61 @@ func findSubstr(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestPinnedStatus(t *testing.T) {
+	now := time.Now()
+	results := []fetchResult{
+		{name: "Claude", report: &usage.Report{Provider: "Claude", Windows: []usage.Window{
+			pctWindow("Weekly", 14, now), pctWindow("Weekly Fable", 19, now),
+		}}},
+		{name: "Codex", report: &usage.Report{Provider: "Codex", Windows: []usage.Window{pctWindow("Weekly", 49, now)}}},
+		{name: "Kiro", err: usage.NotConfigured("kiro-cli not found")},
+		{name: "Grok", err: errors.New("boom")},
+	}
+
+	v := pinnedStatus(results, "Claude")
+	if !v.configured || v.pct != 19 || v.window != "Weekly Fable" {
+		t.Errorf("pinned Claude should show its own highest window, got %+v", v)
+	}
+	if v := pinnedStatus(results, "Kiro"); v.configured {
+		t.Errorf("not configured provider should not count as configured: %+v", v)
+	}
+	if v := pinnedStatus(results, "Grok"); !v.configured || v.err == nil {
+		t.Errorf("provider with an error should keep the error: %+v", v)
+	}
+	if v := pinnedStatus(results, "Copilot"); v.configured || v.pct != -1 {
+		t.Errorf("missing provider: %+v", v)
+	}
+}
+
+func TestPinChoicesAndPinFor(t *testing.T) {
+	results := []fetchResult{
+		{name: "Claude", report: &usage.Report{Provider: "Claude"}},
+		{name: "Kiro", err: usage.NotConfigured("no")},
+	}
+	got := pinChoices(results, "Codex")
+	if len(got) != 2 || got[0] != "Claude" || got[1] != "Codex" {
+		t.Errorf("pin choices should list configured providers plus the current pin, got %v", got)
+	}
+
+	all := []provider{{name: "Claude"}, {name: "Codex"}}
+	if pinFor("CLAUDE", all) != "Claude" {
+		t.Errorf("pin should match case-insensitively")
+	}
+	if pinFor("Claude", []provider{{name: "Codex"}}) != "" {
+		t.Errorf("pin outside the watched providers should be dropped")
+	}
+	if pinFor("nope", all) != "" {
+		t.Errorf("unknown pin should be dropped")
+	}
+}
+
+func TestTrayCmdRejectsUnknownPin(t *testing.T) {
+	cmd := newTrayCmd()
+	cmd.SetArgs([]string{"--pin", "nope"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	if err := cmd.Execute(); err == nil || !contains(err.Error(), "unknown provider") {
+		t.Errorf("expected --pin nope to be rejected, got %v", err)
+	}
 }
