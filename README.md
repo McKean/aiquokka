@@ -91,8 +91,8 @@ in a small menu, with the same data as the terminal view.
 | <img src="docs/images/cli.png" alt="aiquokka in the terminal" width="420"> | <img src="docs/images/tray-menu.png" alt="aiquokka in the macOS menu bar" width="300"> |
 
 - **Top bar** — a small ring and your highest usage right now (for example `44%`).
-  If you only care about one provider, choose it in **Preferences → Menu bar
-  shows** (or use `--pin claude`). Then the top bar shows that provider's logo
+  If you only care about one provider, choose it in **Preferences** under
+  **Menu bar shows** (or use `--pin claude`). Then the top bar shows that provider's logo
   and its highest usage, and the logo gets a small `!` when it reaches the
   alert level. The menu still shows all providers.
 - **One table for all providers** — each provider has its logo, and each window
@@ -102,10 +102,12 @@ in a small menu, with the same data as the terminal view.
   would put you now (see [The pace marker](#the-pace-marker)).
 - **Alerts** — a desktop notification when a window reaches the alert level
   (default 80%), again when it reaches 100%, and when a window resets.
-- **Preferences** — change the alert level, the refresh interval, what the top
-  bar shows and the notifications from the menu. aiquokka saves these choices in
-  `tray.json` in your user config folder and uses them next time. Flags on the
-  command line win over the saved choices.
+- **Preferences** — on macOS, **Preferences…** opens a small window with all
+  options in one place: notifications, alert level, what the top bar shows and
+  the refresh interval. Changes apply right away. On Linux the same options are
+  in a submenu. aiquokka saves these choices in `tray.json` in your user config
+  folder and uses them next time. Flags on the command line win over the saved
+  choices.
 
 ```sh
 aiquokka tray                  # refresh every 60s, alert at 80%

@@ -171,6 +171,8 @@ type trayApp struct {
 	notifyReset  bool
 	pinned       string
 	settingsPath string
+	lastResults  []fetchResult
+	shownPrefs   prefsView
 
 	alertedWindows map[string]limitLevel
 	lastResetTimes map[string]time.Time
@@ -342,6 +344,7 @@ func (a *trayApp) fetchAndUpdate() {
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.lastResults = results
 
 	for _, res := range results {
 		if res.err != nil {
@@ -591,6 +594,20 @@ func (a *trayApp) rebuildMenu(results []fetchResult, now time.Time, s traySummar
 
 	mRefresh := addRow(fmt.Sprintf("Refresh now  ·  checked %s", now.Format("15:04")), "Check all limits immediately", a.glyphs.refresh)
 
+	m := trayMenu{refresh: mRefresh}
+	if hasPrefsWindow {
+		m.prefs = addRow("Preferences…", "Open the preferences window", a.glyphs.prefs)
+	} else {
+		a.addPreferencesSubmenu(results, &m)
+	}
+
+	systray.AddSeparator()
+	m.quit = addRow("Quit aiquokka", "Close the menu bar app", a.glyphs.quit)
+
+	a.listenMenuEvents(menuCtx, m)
+}
+
+func (a *trayApp) addPreferencesSubmenu(results []fetchResult, m *trayMenu) {
 	mSettings := addRow("Preferences", "Adjust alerts and interval", a.glyphs.prefs)
 	mAlerts := mSettings.AddSubMenuItemCheckbox("Desktop alerts", "Notify when a limit crosses the alert threshold", a.notify)
 	mResetAlerts := mSettings.AddSubMenuItemCheckbox("Notify on reset", "Notify when a window's allowance renews", a.notifyReset)
@@ -619,18 +636,11 @@ func (a *trayApp) rebuildMenu(results []fetchResult, now time.Time, s traySummar
 		intervalItems[dur] = mIntervalSub.AddSubMenuItemCheckbox(shortDuration(dur), "", dur == a.interval)
 	}
 
-	systray.AddSeparator()
-	mQuit := addRow("Quit aiquokka", "Close the menu bar app", a.glyphs.quit)
-
-	a.listenMenuEvents(menuCtx, trayMenu{
-		refresh:     mRefresh,
-		alerts:      mAlerts,
-		resetAlerts: mResetAlerts,
-		quit:        mQuit,
-		thresholds:  thresholdItems,
-		intervals:   intervalItems,
-		pins:        pinItems,
-	})
+	m.alerts = mAlerts
+	m.resetAlerts = mResetAlerts
+	m.thresholds = thresholdItems
+	m.intervals = intervalItems
+	m.pins = pinItems
 }
 
 func shortDuration(d time.Duration) string {
@@ -706,6 +716,7 @@ func windowTooltip(w usage.Window, now time.Time) string {
 
 type trayMenu struct {
 	refresh     *systray.MenuItem
+	prefs       *systray.MenuItem
 	alerts      *systray.MenuItem
 	resetAlerts *systray.MenuItem
 	quit        *systray.MenuItem
@@ -715,6 +726,9 @@ type trayMenu struct {
 }
 
 func onClick(ctx context.Context, item *systray.MenuItem, fn func()) {
+	if item == nil {
+		return
+	}
 	go func() {
 		select {
 		case <-item.ClickedCh:
@@ -739,6 +753,7 @@ func (a *trayApp) setThreshold(t int) {
 
 func (a *trayApp) listenMenuEvents(ctx context.Context, m trayMenu) {
 	onClick(ctx, m.refresh, a.triggerRefresh)
+	onClick(ctx, m.prefs, a.openPreferences)
 	onClick(ctx, m.alerts, func() { a.updateSettings(func() { a.notify = !a.notify }) })
 	onClick(ctx, m.resetAlerts, func() { a.updateSettings(func() { a.notifyReset = !a.notifyReset }) })
 	for t, item := range m.thresholds {
