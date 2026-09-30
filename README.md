@@ -86,18 +86,23 @@ document (no status line).
 the Linux system tray. It checks your limits in the background and shows them
 in a small menu, with the same data as the terminal view.
 
-| Terminal (`aiquokka`) | Menu bar (`aiquokka tray`) |
-| :---: | :---: |
-| <img src="docs/images/cli.png" alt="aiquokka in the terminal" width="420"> | <img src="docs/images/tray-menu.png" alt="aiquokka in the macOS menu bar" width="300"> |
+<p align="center">
+  <img src="docs/images/tray-menu.png" alt="aiquokka in the macOS menu bar" width="300">
+</p>
 
 - **Top bar** — a small ring and your highest usage right now (for example `44%`).
   If you only care about one provider, choose it in **Preferences** under
   **Menu bar shows** (or use `--pin claude`). Then the top bar shows that provider's logo
   and its highest usage, and the logo gets a small `!` when it reaches the
   alert level. The menu still shows all providers.
-- **One table for all providers** — each provider has its logo, and each window
+- **One table for all providers** (macOS) — each provider has its logo, and each window
   has a usage bar, the percent and the reset time. All bars start in the same
   column, so it is easy to compare them.
+- **On Linux** — text rows with a small ring icon, because tray hosts there do
+  not show wide images in menus. The usage rows are dimmed so they do not
+  highlight on hover.
+- **Usage pages** — click a provider's name to open its usage page in your
+  browser.
 - **Pace marker** — the small vertical line on a bar shows where even usage
   would put you now (see [The pace marker](#the-pace-marker)).
 - **Alerts** — a desktop notification when a window reaches the alert level
@@ -117,9 +122,6 @@ aiquokka tray --notify=false   # no desktop notifications
 aiquokka tray -p claude        # watch only one provider
 aiquokka tray --pin claude     # watch all, but show only Claude in the top bar
 ```
-
-On Linux the menu uses plain text rows with a small ring icon, because tray
-hosts there do not show wide images in menus.
 
 Provider logos come from [LobeHub Icons](https://github.com/lobehub/lobe-icons)
 (MIT). The logos are trademarks of their owners and are only used to show which

@@ -162,9 +162,26 @@ func TestResetNotification(t *testing.T) {
 	app, sent := newRecordingApp(80)
 	now := time.Now()
 	app.checkNotifications("Grok", pctWindow("Weekly", 10, now.Add(time.Hour)), now)
-	app.checkNotifications("Grok", pctWindow("Weekly", 0, now.Add(7*24*time.Hour)), now)
+	later := now.Add(time.Hour + time.Minute)
+	app.checkNotifications("Grok", pctWindow("Weekly", 0, later.Add(7*24*time.Hour)), later)
 	if len(*sent) != 1 || !contains((*sent)[0].body, "reset") {
 		t.Errorf("expected one reset alert, got %v", *sent)
+	}
+}
+
+func TestNoResetNotificationWhenResetTimeDrifts(t *testing.T) {
+	app, sent := newRecordingApp(80)
+	now := time.Now()
+	// Codex computes the reset as now plus a countdown, so it moves a
+	// second or two between fetches.
+	app.checkNotifications("Codex", pctWindow("Weekly", 10, now.Add(3*24*time.Hour)), now)
+	next := now.Add(time.Minute)
+	app.checkNotifications("Codex", pctWindow("Weekly", 10, next.Add(3*24*time.Hour-58*time.Second)), next)
+	// A rolling window that pushes its reset later before reaching it.
+	app.checkNotifications("Claude", pctWindow("5h", 0, now.Add(5*time.Hour)), now)
+	app.checkNotifications("Claude", pctWindow("5h", 0, next.Add(5*time.Hour)), next)
+	if len(*sent) != 0 {
+		t.Errorf("expected no reset alerts, got %v", *sent)
 	}
 }
 

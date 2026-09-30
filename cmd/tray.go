@@ -798,7 +798,7 @@ func (a *trayApp) checkNotifications(providerName string, win usage.Window, now 
 
 	if !win.ResetsAt.IsZero() {
 		lastReset, known := a.lastResetTimes[key]
-		if known && win.ResetsAt.After(lastReset) && a.notify && a.notifyReset {
+		if known && windowWasReset(lastReset, win.ResetsAt, now) && a.notify && a.notifyReset {
 			a.send(
 				fmt.Sprintf("aiquokka · %s", providerName),
 				fmt.Sprintf("%s limit has been reset.", win.Label),
@@ -807,6 +807,18 @@ func (a *trayApp) checkNotifications(providerName string, win usage.Window, now 
 		}
 		a.lastResetTimes[key] = win.ResetsAt
 	}
+}
+
+// resetTolerance absorbs reset times that are computed as now plus a
+// countdown (Codex) or rounded by the provider, so they wobble a little
+// between fetches.
+const resetTolerance = time.Minute
+
+// windowWasReset reports whether a window really renewed: the reset time
+// seen last has come, and the provider now reports a later one. A reset
+// time that merely moves later before it is reached is not a reset.
+func windowWasReset(last, next, now time.Time) bool {
+	return !now.Before(last.Add(-resetTolerance)) && next.Sub(last) > resetTolerance
 }
 
 func thresholdAlert(providerName string, win usage.Window, pct float64, lvl limitLevel, now time.Time) (string, string, bool) {
