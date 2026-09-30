@@ -75,7 +75,7 @@ func renderWindow(win Window, now time.Time, maxLabel int) string {
 	}
 
 	if !win.ResetsAt.IsZero() {
-		fmt.Fprintf(&b, "   resets %s", humanizeReset(win.ResetsAt, now))
+		fmt.Fprintf(&b, "   resets %s", HumanizeReset(win.ResetsAt, now))
 	}
 	return b.String()
 }
@@ -169,8 +169,8 @@ func FormatMoney(amount float64, currency string) string {
 	}
 }
 
-// humanizeReset formats a reset time relative to now, e.g. "in 3h12m (18:40)".
-func humanizeReset(t, now time.Time) string {
+// HumanizeReset formats a reset time relative to now, e.g. "in 3h12m (18:40)".
+func HumanizeReset(t, now time.Time) string {
 	d := t.Sub(now)
 	if d <= 0 {
 		return "now"
