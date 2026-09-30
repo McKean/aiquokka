@@ -477,7 +477,7 @@ func summaryLine(s traySummary, threshold int) (string, bool) {
 }
 
 func addRow(text, tooltip string, g glyph) *systray.MenuItem {
-	item := systray.AddMenuItem(text, tooltip)
+	item := systray.AddMenuItem(menuLabel(text), tooltip)
 	item.SetTemplateIcon(g.template, g.regular)
 	return item
 }
@@ -486,6 +486,18 @@ func addImageRow(img []byte, tooltip string) *systray.MenuItem {
 	item := systray.AddMenuItem("", tooltip)
 	item.SetTemplateIcon(img, img)
 	return item
+}
+
+// addHeader adds a provider's section header. It opens the provider's usage
+// page when one is known, and is disabled otherwise so it does not highlight.
+func (m *trayMenu) addHeader(item *systray.MenuItem, provider string) {
+	url, ok := providerURLs[provider]
+	if !ok {
+		item.Disable()
+		return
+	}
+	item.SetTooltip("Open the " + provider + " usage page")
+	m.links = append(m.links, menuLink{item: item, url: url})
 }
 
 func configuredResults(results []fetchResult) []fetchResult {
@@ -498,10 +510,10 @@ func configuredResults(results []fetchResult) []fetchResult {
 	return out
 }
 
-func (a *trayApp) addProviderSections(results []fetchResult, now time.Time) {
+func (a *trayApp) addProviderSections(results []fetchResult, now time.Time, m *trayMenu) {
 	sources := configuredResults(results)
 	if a.face == nil {
-		a.addTextSections(sources, now)
+		a.addTextSections(sources, now, m)
 		return
 	}
 
@@ -520,13 +532,14 @@ func (a *trayApp) addProviderSections(results []fetchResult, now time.Time) {
 
 	for _, src := range sources {
 		if src.err != nil {
-			addImageRow(renderHeaderRow(a.face, logoGlyph(src.name).template, src.name, "", 0), "")
+			m.addHeader(addImageRow(renderHeaderRow(a.face, logoGlyph(src.name).template, src.name, "", 0), ""), src.name)
 			addRow(src.err.Error(), "", a.glyphs.warning).Disable()
 			systray.AddSeparator()
 			continue
 		}
 		rep := src.report
-		addImageRow(renderHeaderRow(a.face, logoGlyph(rep.Provider).template, rep.Provider, rep.Plan, 0), rep.Plan)
+		plan := displayPlan(rep.Provider, rep.Plan)
+		m.addHeader(addImageRow(renderHeaderRow(a.face, logoGlyph(rep.Provider).template, rep.Provider, plan, 0), plan), rep.Provider)
 		if len(rep.Windows) == 0 {
 			addRow("No usage windows reported", "", a.glyphs.spacer).Disable()
 		}
@@ -541,28 +554,32 @@ func (a *trayApp) addProviderSections(results []fetchResult, now time.Time) {
 	}
 }
 
-func (a *trayApp) addTextSections(sources []fetchResult, now time.Time) {
+func (a *trayApp) addTextSections(sources []fetchResult, now time.Time, m *trayMenu) {
+	var windows []usage.Window
+	for _, src := range sources {
+		if src.err == nil {
+			windows = append(windows, src.report.Windows...)
+		}
+	}
+	cols := newTextColumns(windows)
+
 	for _, src := range sources {
 		if src.err != nil {
-			addRow(src.name, "", logoGlyph(src.name)).Disable()
-			addRow(src.err.Error(), "", a.glyphs.warning).Disable()
+			m.addHeader(addRow(src.name, "", logoGlyph(src.name)), src.name)
+			addRow(textIndent+src.err.Error(), "", a.glyphs.warning).Disable()
 			systray.AddSeparator()
 			continue
 		}
 		rep := src.report
-		header := rep.Provider
-		if rep.Plan != "" {
-			header = fmt.Sprintf("%s  ·  %s", rep.Provider, rep.Plan)
-		}
-		addRow(header, "", logoGlyph(rep.Provider)).Disable()
+		m.addHeader(addRow(providerHeader(rep.Provider, rep.Plan), "", logoGlyph(rep.Provider)), rep.Provider)
 		if len(rep.Windows) == 0 {
-			addRow("No usage windows reported", "", a.glyphs.spacer).Disable()
+			addRow(textIndent+"No usage windows reported", "", a.glyphs.spacer).Disable()
 		}
 		for _, w := range rep.Windows {
-			addRow(windowTitle(w, now), windowTooltip(w, now), a.windowGlyph(w, now))
+			addRow(cols.row(w, now), windowTooltip(w, now), a.windowGlyph(w, now)).Disable()
 		}
-		for _, extra := range rep.Extra {
-			addRow(fmt.Sprintf("%s: %s", extra.Label, extra.Value), "", a.glyphs.spacer)
+		for _, f := range rep.Extra {
+			addRow(factRow(f), "", a.glyphs.spacer).Disable()
 		}
 		systray.AddSeparator()
 	}
@@ -577,6 +594,7 @@ func (a *trayApp) rebuildMenu(results []fetchResult, now time.Time, s traySummar
 
 	systray.ResetMenu()
 
+	var m trayMenu
 	if s.active == 0 {
 		addRow("No configured providers found", "Log in via the official CLIs", a.glyphs.warning).Disable()
 		systray.AddSeparator()
@@ -586,15 +604,19 @@ func (a *trayApp) rebuildMenu(results []fetchResult, now time.Time, s traySummar
 		if alert {
 			summaryGlyph = a.glyphs.warning
 		}
-		addRow(text, "Change it in Preferences → Alert at", summaryGlyph)
+		summary := addRow(text, "Change it in Preferences → Alert at", summaryGlyph)
+		if a.face == nil {
+			// Linux tray hosts highlight every enabled row; this one has no action.
+			summary.Disable()
+		}
 		systray.AddSeparator()
 
-		a.addProviderSections(results, now)
+		a.addProviderSections(results, now, &m)
 	}
 
 	mRefresh := addRow(fmt.Sprintf("Refresh now  ·  checked %s", now.Format("15:04")), "Check all limits immediately", a.glyphs.refresh)
 
-	m := trayMenu{refresh: mRefresh}
+	m.refresh = mRefresh
 	if hasPrefsWindow {
 		m.prefs = addRow("Preferences…", "Open the preferences window", a.glyphs.prefs)
 	} else {
@@ -674,28 +696,6 @@ func (a *trayApp) windowGlyph(w usage.Window, now time.Time) glyph {
 	return a.glyphs.unknown
 }
 
-func windowTitle(w usage.Window, now time.Time) string {
-	var b strings.Builder
-	b.WriteString(w.Label)
-	b.WriteString("   ")
-	pct, hasPct := windowPercent(w)
-	switch {
-	case hasPct:
-		b.WriteString(formatPct(pct))
-		if w.UsedPercent == nil {
-			fmt.Fprintf(&b, "  (%d/%d)", *w.Used, *w.Limit)
-		}
-	case w.Remaining != nil:
-		b.WriteString(usage.FormatMoney(*w.Remaining, w.Currency))
-	default:
-		b.WriteString("—")
-	}
-	if !w.ResetsAt.IsZero() {
-		fmt.Fprintf(&b, "   ·   resets %s", usage.HumanizeReset(w.ResetsAt, now))
-	}
-	return b.String()
-}
-
 func windowTooltip(w usage.Window, now time.Time) string {
 	pct, ok := windowPercent(w)
 	pace := w.Pace(now)
@@ -723,6 +723,12 @@ type trayMenu struct {
 	thresholds  map[int]*systray.MenuItem
 	intervals   map[time.Duration]*systray.MenuItem
 	pins        map[string]*systray.MenuItem
+	links       []menuLink
+}
+
+type menuLink struct {
+	item *systray.MenuItem
+	url  string
 }
 
 func onClick(ctx context.Context, item *systray.MenuItem, fn func()) {
@@ -730,10 +736,13 @@ func onClick(ctx context.Context, item *systray.MenuItem, fn func()) {
 		return
 	}
 	go func() {
-		select {
-		case <-item.ClickedCh:
-			fn()
-		case <-ctx.Done():
+		for {
+			select {
+			case <-item.ClickedCh:
+				fn()
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 }
@@ -764,6 +773,9 @@ func (a *trayApp) listenMenuEvents(ctx context.Context, m trayMenu) {
 	}
 	for name, item := range m.pins {
 		onClick(ctx, item, func() { a.updateSettings(func() { a.pinned = name }) })
+	}
+	for _, l := range m.links {
+		onClick(ctx, l.item, func() { openURL(l.url) })
 	}
 	onClick(ctx, m.quit, systray.Quit)
 }

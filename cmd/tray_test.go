@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -210,24 +211,52 @@ func TestSummarizeAndSummaryLine(t *testing.T) {
 	}
 }
 
-func TestWindowTitle(t *testing.T) {
+func TestTextColumnsRow(t *testing.T) {
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.Local)
-	win := pctWindow("Weekly", 44, now.Add(2*time.Hour))
-	if got := windowTitle(win, now); got != "Weekly   44%   ·   resets in 2h0m (Fri 14:00)" {
-		t.Errorf("unexpected title: %q", got)
-	}
-
 	used, limit := int64(3), int64(50)
 	credits := usage.Window{Label: "Credits", Used: &used, Limit: &limit}
-	if got := windowTitle(credits, now); got != "Credits   6%  (3/50)" {
-		t.Errorf("unexpected credits title: %q", got)
-	}
+	weekly := pctWindow("Weekly Fable", 44, now.Add(2*time.Hour))
+	fiveHour := pctWindow("5h", 3, now.Add(50*time.Hour))
+	cols := newTextColumns([]usage.Window{credits, weekly, fiveHour})
 
-	if got := windowTitle(usage.Window{Label: "Spend"}, now); got != "Spend   —" {
-		t.Errorf("unexpected unknown title: %q", got)
+	cases := map[string]struct {
+		w    usage.Window
+		want string
+	}{
+		"same day": {weekly, "    Weekly Fable         44%   resets 14:00"},
+		"weekday":  {fiveHour, "    5h                    3%   resets Sun 14:00"},
+		"counts":   {credits, "    Credits        6% (3/50)"},
+		"unknown":  {usage.Window{Label: "Spend"}, "    Spend                  —"},
 	}
-	if contains(windowTitle(win, now), "[") {
-		t.Errorf("title must not contain ASCII bars")
+	for name, tc := range cases {
+		if got := cols.row(tc.w, now); got != tc.want {
+			t.Errorf("%s: got %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
+func TestDisplayPlan(t *testing.T) {
+	cases := []struct{ provider, plan, want string }{
+		{"Claude", "max/default_claude_max_20x", "Max 20x"},
+		{"Claude", "pro", "Pro"},
+		{"Claude", "", ""},
+		{"Codex", "plus", "Plus"},
+		{"Grok", "XPremium", "XPremium"},
+		{"Kiro", "KIRO PRO", "KIRO PRO"},
+	}
+	for _, tc := range cases {
+		if got := displayPlan(tc.provider, tc.plan); got != tc.want {
+			t.Errorf("displayPlan(%q, %q) = %q, want %q", tc.provider, tc.plan, got, tc.want)
+		}
+	}
+}
+
+func TestMenuLabelEscapesMnemonics(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("mnemonic escaping only applies to DBusMenu")
+	}
+	if got := menuLabel("default_claude_max_20x"); got != "default__claude__max__20x" {
+		t.Errorf("unexpected label: %q", got)
 	}
 }
 
