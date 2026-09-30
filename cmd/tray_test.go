@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"fyne.io/systray"
 	"github.com/McKean/aiquokka/internal/usage"
 )
 
@@ -369,5 +372,18 @@ func TestTrayCmdRejectsUnknownPin(t *testing.T) {
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	if err := cmd.Execute(); err == nil || !contains(err.Error(), "unknown provider") {
 		t.Errorf("expected --pin nope to be rejected, got %v", err)
+	}
+}
+
+func TestOnClickIgnoresClosedChannel(t *testing.T) {
+	item := &systray.MenuItem{ClickedCh: make(chan struct{})}
+	var calls atomic.Int32
+	onClick(context.Background(), item, func() { calls.Add(1) })
+
+	item.ClickedCh <- struct{}{}
+	close(item.ClickedCh) // what ResetMenu does to removed items
+	time.Sleep(20 * time.Millisecond)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("handler ran %d times, want 1 (a closed channel is not a click)", got)
 	}
 }

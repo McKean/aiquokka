@@ -345,7 +345,12 @@ func (a *trayApp) fetchAndUpdate() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.lastResults = results
+	a.render(results, now)
+}
 
+// render updates the alerts, the top bar and the menu from fetched results.
+// The caller holds a.mu.
+func (a *trayApp) render(results []fetchResult, now time.Time) {
 	for _, res := range results {
 		if res.err != nil {
 			continue
@@ -488,12 +493,15 @@ func addImageRow(img []byte, tooltip string) *systray.MenuItem {
 	return item
 }
 
-// addHeader adds a provider's section header. It opens the provider's usage
-// page when one is known, and is disabled otherwise so it does not highlight.
+// addHeader makes a provider's section header open its usage page. Without a
+// known page, the header is disabled on Linux so it does not highlight; macOS
+// rows stay enabled, because disabled ones are dimmed there.
 func (m *trayMenu) addHeader(item *systray.MenuItem, provider string) {
 	url, ok := providerURLs[provider]
 	if !ok {
-		item.Disable()
+		if runtime.GOOS != "darwin" {
+			item.Disable()
+		}
 		return
 	}
 	item.SetTooltip("Open the " + provider + " usage page")
@@ -631,8 +639,10 @@ func (a *trayApp) rebuildMenu(results []fetchResult, now time.Time, s traySummar
 
 func (a *trayApp) addPreferencesSubmenu(results []fetchResult, m *trayMenu) {
 	mSettings := addRow("Preferences", "Adjust alerts and interval", a.glyphs.prefs)
-	mAlerts := mSettings.AddSubMenuItemCheckbox("Desktop alerts", "Notify when a limit crosses the alert threshold", a.notify)
-	mResetAlerts := mSettings.AddSubMenuItemCheckbox("Notify on reset", "Notify when a window's allowance renews", a.notifyReset)
+	// The state is in the label too: many GTK themes draw nothing for an
+	// unchecked item, so "off" looks the same as no checkbox at all.
+	mAlerts := mSettings.AddSubMenuItemCheckbox("Desktop alerts: "+onOff(a.notify), "Notify when a limit crosses the alert threshold", a.notify)
+	mResetAlerts := mSettings.AddSubMenuItemCheckbox("Notify on reset: "+onOff(a.notifyReset), "Notify when a window's allowance renews", a.notifyReset)
 
 	mThresholdSub := mSettings.AddSubMenuItem(fmt.Sprintf("Alert at %d%%", a.threshold), "Usage percentage that triggers an alert")
 	thresholdItems := make(map[int]*systray.MenuItem)
@@ -663,6 +673,13 @@ func (a *trayApp) addPreferencesSubmenu(results []fetchResult, m *trayMenu) {
 	m.thresholds = thresholdItems
 	m.intervals = intervalItems
 	m.pins = pinItems
+}
+
+func onOff(on bool) string {
+	if on {
+		return "On"
+	}
+	return "Off"
 }
 
 func shortDuration(d time.Duration) string {
@@ -738,7 +755,12 @@ func onClick(ctx context.Context, item *systray.MenuItem, fn func()) {
 	go func() {
 		for {
 			select {
-			case <-item.ClickedCh:
+			case _, ok := <-item.ClickedCh:
+				// ResetMenu closes the channels of the items it removes; a
+				// receive on a closed channel is not a click.
+				if !ok || ctx.Err() != nil {
+					return
+				}
 				fn()
 			case <-ctx.Done():
 				return
@@ -747,12 +769,22 @@ func onClick(ctx context.Context, item *systray.MenuItem, fn func()) {
 	}()
 }
 
+// updateSettings applies a settings change and redraws the menu from the
+// last results right away, so the new state shows without waiting for a
+// fetch of every provider.
 func (a *trayApp) updateSettings(fn func()) {
 	a.mu.Lock()
+	interval := a.interval
 	fn()
 	a.persist()
+	if a.lastResults != nil {
+		a.render(a.lastResults, time.Now())
+	}
+	intervalChanged := a.interval != interval
 	a.mu.Unlock()
-	a.triggerRefresh()
+	if intervalChanged {
+		a.triggerRefresh() // restart the poll timer with the new interval
+	}
 }
 
 func (a *trayApp) setThreshold(t int) {

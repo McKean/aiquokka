@@ -74,6 +74,26 @@ func TestApplyPref(t *testing.T) {
 	}
 }
 
+func TestUpdateSettingsRestartsPollOnlyForInterval(t *testing.T) {
+	app := newTrayApp(nil, trayConfig{interval: time.Minute, notify: true, threshold: 80, notifyReset: true})
+	app.lastResults = []fetchResult{{name: "Claude", report: &usage.Report{Provider: "Claude"}}}
+	app.shownPrefs = app.prefsView()
+
+	app.applyPref(prefNotify, 0)
+	select {
+	case <-app.refreshTrigger:
+		t.Fatal("a non-interval change must not refetch every provider")
+	default:
+	}
+
+	app.applyPref(prefInterval, 1)
+	select {
+	case <-app.refreshTrigger:
+	default:
+		t.Fatal("an interval change must restart the poll timer")
+	}
+}
+
 func TestIntervalLabel(t *testing.T) {
 	for d, want := range map[time.Duration]string{time.Minute: "1 minute", 2 * time.Minute: "2 minutes", 15 * time.Minute: "15 minutes", 90 * time.Second: "1m30s"} {
 		if got := intervalLabel(d); got != want {
