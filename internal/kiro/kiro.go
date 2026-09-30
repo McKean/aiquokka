@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,9 +23,11 @@ var (
 	planPattern     = regexp.MustCompile(`(?im)^Estimated Usage\s*\|[^\n]*\|\s*(.+?)\s*$`)
 	fallbackPlan    = regexp.MustCompile(`(?im)\bPlan:\s*([^|\n]+)`)
 	creditsPattern  = regexp.MustCompile(`(?im)^Credits\s*\(\s*([0-9]+(?:\.[0-9]+)?)\s+of\s+([0-9]+(?:\.[0-9]+)?)\s+([^)]*?)\s*\)`)
-	resetPattern    = regexp.MustCompile(`(?i)\bresets on\s+(\d{1,2})/(\d{1,2})\b`)
+	resetPattern    = regexp.MustCompile(`(?i)\bresets on\s+(?:\d{4}-)?(\d{1,2})[/-](\d{1,2})\b`)
 	overagesPattern = regexp.MustCompile(`(?im)^Overages:\s*([^\n]+)`)
 )
+
+const commandWaitDelay = 2 * time.Second
 
 // Fetch asks the installed Kiro CLI for the same billing and credits view its
 // interactive /usage command displays. Kiro CLI remains responsible for its
@@ -34,7 +38,14 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 		return nil, usage.NotConfigured("kiro-cli not found — install and log in to Kiro CLI first")
 	}
 
-	out, err := exec.CommandContext(ctx, path, "chat", "--no-interactive", "/usage").CombinedOutput()
+	out, err := runUsage(ctx, path)
+	if err != nil && strings.Contains(string(out), "failed to launch") {
+		// kiro-cli execs kiro-cli-chat from a fixed location that some installs
+		// (e.g. Homebrew's app bundle) never populate; run its sibling directly.
+		if chat, ok := chatBinary(path); ok {
+			out, err = runUsage(ctx, chat)
+		}
+	}
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, fmt.Errorf("Kiro usage request timed out")
@@ -58,6 +69,31 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 		return nil, err
 	}
 	return report, nil
+}
+
+func runUsage(ctx context.Context, bin string) ([]byte, error) {
+	return runCommand(ctx, bin, "chat", "--no-interactive", "/usage")
+}
+
+func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	killProcessTree(cmd)
+	cmd.WaitDelay = commandWaitDelay
+	return cmd.CombinedOutput()
+}
+
+// chatBinary returns the kiro-cli-chat executable that ships next to the real
+// (symlink-resolved) kiro-cli binary.
+func chatBinary(cli string) (string, bool) {
+	resolved, err := filepath.EvalSymlinks(cli)
+	if err != nil {
+		return "", false
+	}
+	chat := filepath.Join(filepath.Dir(resolved), "kiro-cli-chat")
+	if info, err := os.Stat(chat); err != nil || info.IsDir() {
+		return "", false
+	}
+	return chat, true
 }
 
 func parseUsage(raw string, now time.Time) (*usage.Report, error) {
