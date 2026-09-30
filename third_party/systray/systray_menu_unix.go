@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -61,7 +62,7 @@ func copyLayout(in *menuLayout, depth int32) *menuLayout {
 	return &out
 }
 
-// firstGetLayoutDone tracks whether the initial GetLayout response has been served
+// firstGetLayoutAt tracks whether the initial GetLayout response has been served
 // since the last menu reset. libdbusmenu-gtk3 (used by Cinnamon/Xfce/GNOME) requests
 // GetGroupProperties for grandchildren before parents in the first call, causing children
 // to be silently dropped (blank submenus) because parent GtkMenu containers don't exist
@@ -70,7 +71,13 @@ func copyLayout(in *menuLayout, depth int32) *menuLayout {
 // After serving depth=1, a goroutine automatically triggers a second GetLayout cycle so
 // submenus populate without requiring user interaction. Multiple goroutines from rapid
 // resets are harmless — they just emit extra LayoutUpdated signals.
-var firstGetLayoutDone bool
+//
+// Every GetLayout within firstGetLayoutWindow of the first one gets depth=1 too:
+// one host process can run several menus (Waybar has one per output), and they
+// all request the layout at once from the same connection.
+var firstGetLayoutAt time.Time
+
+const firstGetLayoutWindow = 100 * time.Millisecond
 
 // GetLayout is com.canonical.dbusmenu.GetLayout method.
 func (t *tray) GetLayout(parentID int32, recursionDepth int32, propertyNames []string) (revision uint32, layout menuLayout, err *dbus.Error) {
@@ -79,13 +86,15 @@ func (t *tray) GetLayout(parentID int32, recursionDepth int32, propertyNames []s
 	defer instance.menuLock.Unlock()
 	if m, ok := findLayout(parentID); ok {
 		depth := recursionDepth
-		if !firstGetLayoutDone {
-			firstGetLayoutDone = true
-			depth = 1
+		if firstGetLayoutAt.IsZero() {
+			firstGetLayoutAt = time.Now()
 			go func() {
 				time.Sleep(150 * time.Millisecond)
 				refresh()
 			}()
+		}
+		if time.Since(firstGetLayoutAt) < firstGetLayoutWindow {
+			depth = 1
 		}
 		// return copy of menu layout to prevent panic from cuncurrent access to layout
 		return instance.menuVersion, *copyLayout(m, depth), nil
@@ -414,7 +423,30 @@ func emitItemPropertiesUpdated(id int32, props map[string]dbus.Variant) {
 	}
 }
 
+// layoutUpdateDelay is how long refresh waits for more changes before it
+// emits LayoutUpdated. Rebuilding a menu adds dozens of items; one signal per
+// item makes hosts fetch half-built layouts, which uses up the depth=1 first
+// GetLayout (see firstGetLayoutAt) and leaves submenus blank.
+const layoutUpdateDelay = 30 * time.Millisecond
+
+var (
+	refreshMu    sync.Mutex
+	refreshTimer *time.Timer
+)
+
+// refresh schedules a LayoutUpdated signal, coalescing changes that arrive
+// within layoutUpdateDelay of each other into one.
 func refresh() {
+	refreshMu.Lock()
+	defer refreshMu.Unlock()
+	if refreshTimer == nil {
+		refreshTimer = time.AfterFunc(layoutUpdateDelay, emitLayoutUpdated)
+		return
+	}
+	refreshTimer.Reset(layoutUpdateDelay)
+}
+
+func emitLayoutUpdated() {
 	instance.lock.Lock()
 	defer instance.lock.Unlock()
 	if instance.conn == nil || instance.menuProps == nil {
@@ -443,6 +475,6 @@ func resetMenu() {
 	defer instance.menuLock.Unlock()
 	instance.menu = &menuLayout{}
 	instance.menuVersion++
-	firstGetLayoutDone = false
+	firstGetLayoutAt = time.Time{}
 	refresh()
 }
