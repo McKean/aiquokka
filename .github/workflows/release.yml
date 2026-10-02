@@ -88,9 +88,13 @@ jobs:
       - name: Test Unix installer
         if: runner.os != 'Windows'
         run: python3 scripts/test_install.py
-      - name: Test Windows installer
+      - name: Test Windows installer (PowerShell 7)
         if: runner.os == 'Windows'
         shell: pwsh
+        run: ./scripts/test_install.ps1
+      - name: Test Windows installer (PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
         run: ./scripts/test_install.ps1
       - name: Build archive
         env:

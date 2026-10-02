@@ -36,11 +36,11 @@ function Invoke-WebRequest {
 }
 
 function New-TestRelease {
-    param([string]$Architecture, [switch]$Corrupt, [switch]$MissingBinary)
+    param([string]$Architecture, [switch]$Corrupt, [switch]$MissingBinary, [string]$Content = 'test release binary')
     Get-ChildItem -LiteralPath $assetsDirectory | Remove-Item -Force
     $name = if ($MissingBinary) { 'other.exe' } else { 'aiquokka.exe' }
     $binary = Join-Path $assetsDirectory $name
-    Set-Content -LiteralPath $binary -Value 'test release binary' -Encoding ascii
+    Set-Content -LiteralPath $binary -Value $Content -Encoding ascii
     $archiveName = "aiquokka_windows_${Architecture}.zip"
     $archive = Join-Path $assetsDirectory $archiveName
     Compress-Archive -LiteralPath $binary -DestinationPath $archive
@@ -59,7 +59,7 @@ function Assert-InstallFails {
     if (-not $failure -or -not $failure.Contains($Message)) {
         throw "Expected failure containing '$Message', received '$failure'"
     }
-    if ((Get-Content -LiteralPath (Join-Path $binDirectory 'aiquokka.exe') -Raw).Trim() -ne 'test release binary') {
+    if ((Get-Content -LiteralPath (Join-Path $binDirectory 'aiquokka.exe') -Raw).Trim() -ne $expectedBinary) {
         throw 'Failed installation changed the existing binary'
     }
 }
@@ -68,9 +68,10 @@ try {
     foreach ($architecture in @('AMD64', 'ARM64')) {
         $env:PROCESSOR_ARCHITECTURE = $architecture
         $env:PROCESSOR_ARCHITEW6432 = $null
-        New-TestRelease -Architecture ($architecture.ToLowerInvariant())
+        $expectedBinary = "test release binary $architecture"
+        New-TestRelease -Architecture ($architecture.ToLowerInvariant()) -Content $expectedBinary
         & $installer -Repository McKean/aiquokka -Version latest -BinDir $binDirectory
-        if ((Get-Content -LiteralPath (Join-Path $binDirectory 'aiquokka.exe') -Raw).Trim() -ne 'test release binary') {
+        if ((Get-Content -LiteralPath (Join-Path $binDirectory 'aiquokka.exe') -Raw).Trim() -ne $expectedBinary) {
             throw "Incorrect installed binary for $architecture"
         }
         if (($env:Path -split ';') -notcontains $binDirectory) {

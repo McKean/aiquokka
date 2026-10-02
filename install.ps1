@@ -73,7 +73,7 @@ try {
     $staged = Join-Path $BinDir ('.aiquokka-' + [Guid]::NewGuid().ToString('N') + '.exe')
     Copy-Item -LiteralPath $binary -Destination $staged
     if (Test-Path -LiteralPath $destination) {
-        [IO.File]::Replace($staged, $destination, $null)
+        [IO.File]::Replace($staged, $destination, [NullString]::Value)
     } else {
         [IO.File]::Move($staged, $destination)
     }
