@@ -32,6 +32,7 @@ func TestMergeCredentialsPreservesBareOAuthFields(t *testing.T) {
 func TestLoadCredentialsPrefersFileOverKeychain(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +62,7 @@ func TestLoadCredentialsPrefersFileOverKeychain(t *testing.T) {
 func TestLoadCredentialsFallsBackToKeychainWhenFileHasNoToken(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +89,9 @@ func TestLoadCredentialsFallsBackToKeychainWhenFileHasNoToken(t *testing.T) {
 }
 
 func TestLoadCredentialsFallsBackToKeychain(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	original := readKeychainCredentials
 	t.Cleanup(func() { readKeychainCredentials = original })

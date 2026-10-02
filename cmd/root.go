@@ -42,8 +42,9 @@ const watchInterval = 60 * time.Second
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "aiquokka",
-		Short: "Check AI coding-assistant usage limits",
+		Use:     "aiquokka",
+		Version: Version,
+		Short:   "Check AI coding-assistant usage limits",
 		Long: `aiquokka reports the usage limits of your AI coding subscriptions.
 
   aiquokka          all providers at once
