@@ -1,4 +1,5 @@
 import contextlib
+from datetime import date
 import importlib.util
 import io
 import json
@@ -47,7 +48,12 @@ class FakeAPI:
     def request_json(self, method, url, payload=None):
         self.requests.append((method, url, payload))
         if method == "GET" and "/git/ref/tags/" in url:
+            if self.tag_object is None:
+                raise release.GitHubAPIError(404, "not found")
             return {"object": {"sha": self.tag_object}}
+        if method == "POST" and url.endswith("/git/refs"):
+            self.tag_object = payload["sha"]
+            return {"ref": payload["ref"], "object": {"sha": self.tag_object}}
         if method == "GET" and "/releases/tags/" in url:
             if self.release is None:
                 raise release.GitHubAPIError(404, "not found")
@@ -86,6 +92,17 @@ class FakeAPI:
 
 
 class TagTests(unittest.TestCase):
+    def test_first_calendar_release(self):
+        self.assertEqual(release.next_calver_tag([], date(2026, 10, 2)), "v2026.10.0")
+
+    def test_calendar_counter_uses_highest_tag_including_prereleases(self):
+        tags = ["v2026.10.2", "v2026.10.11-rc.1", "v2026.10.4", "v2026.10.9+build"]
+        self.assertEqual(release.next_calver_tag(tags, date(2026, 10, 2)), "v2026.10.12")
+
+    def test_calendar_counter_resets_each_month_and_year(self):
+        tags = ["v2026.9.99", "v2025.10.8", "v1.2.3", "v2026.010.5", "latest"]
+        self.assertEqual(release.next_calver_tag(tags, date(2026, 10, 2)), "v2026.10.0")
+
     def test_semver(self):
         for tag in ("v0.1.0", "v12.3.45", "v1.2.3-rc.1", "v1.2.3+build-with-hyphens"):
             with self.subTest(tag=tag):
@@ -109,6 +126,54 @@ class TagTests(unittest.TestCase):
             with self.assertRaises(release.GitHubAPIError):
                 release.create_or_get_release(api, "owner/repo", "v1.2.3", "commit")
         self.assertEqual(request.call_count, 1)
+
+
+class NotesTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        (self.root / "releases").mkdir()
+        self.path = self.root / "releases" / "next.yaml"
+
+    def test_yaml_supports_quoted_items_and_multiline_highlights(self):
+        self.path.write_text('title: Release\nhighlights: |\n  First line.\n  Second line.\nfeatures:\n  - "New: **feature**"\nfixes: []\n')
+        notes = release.load_notes(self.path)
+        self.assertEqual(notes["highlights"], "First line.\nSecond line.\n")
+        self.assertEqual(notes["features"], ["New: **feature**"])
+
+    def test_invalid_notes_fail_instead_of_silently_losing_content(self):
+        for text in (
+            "title: Only a title\n",
+            "features: single string\n",
+            "features: [true]\n",
+            "features: ['']\n",
+            "features: [Fine]\nfeature: [Typo]\n",
+            "features: [First]\nfeatures: [Duplicate]\n",
+            "features: [unclosed\n",
+            "- list instead of mapping\n",
+            "!!python/object:builtins.object {}\n",
+        ):
+            with self.subTest(text=text):
+                self.path.write_text(text)
+                with self.assertRaises(ValueError):
+                    release.load_notes(self.path)
+
+    def test_notes_validation_checks_versioned_files_too(self):
+        self.path.write_text('features: [Good]\n')
+        (self.root / "releases" / "v2026.10.0.yaml").write_text('features: [Good]\n')
+        with contextlib.redirect_stdout(io.StringIO()):
+            release.validate_notes(self.root)
+        (self.root / "releases" / "v2026.10.0.yaml").write_text('fixes: wrong\n')
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+            release.validate_notes(self.root)
+
+    def test_notes_symlinks_are_rejected(self):
+        target = self.root / "external.yaml"
+        target.write_text('features: [Good]\n')
+        self.path.symlink_to(target)
+        with self.assertRaises(RuntimeError):
+            release.load_notes(self.path)
 
 
 class AssetTests(unittest.TestCase):
@@ -196,6 +261,133 @@ class PublishTests(unittest.TestCase):
     def publish(self, dry_run=False):
         with contextlib.redirect_stdout(io.StringIO()):
             release.publish_release(self.directory, "v1.2.3", "owner/repo", self.root, self.api, dry_run)
+
+    def write_notes(self, text, name="next.yaml"):
+        notes = self.root / "releases" / name
+        notes.parent.mkdir(exist_ok=True)
+        notes.write_text(text)
+        return notes
+
+    def publish_calendar(self, dry_run=False):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            release.publish_release(
+                self.directory, "v2026.10.0", "owner/repo", self.root, self.api,
+                dry_run=dry_run, create_tag=True,
+            )
+        return output.getvalue()
+
+    def test_automatic_version_reuses_tag_for_the_same_commit(self):
+        self.git("tag", "v2026.10.0")
+        result = release.resolve_version("workflow_dispatch", "refs/heads/main", root=self.root, date=date(2026, 10, 2))
+        self.assertEqual(result, {"tag": "v2026.10.0", "commit": self.commit, "publish": "true", "auto": "false"})
+        self.git("commit", "--allow-empty", "-q", "-m", "Next release")
+        result = release.resolve_version("workflow_dispatch", "refs/heads/main", root=self.root, date=date(2026, 10, 2))
+        self.assertEqual(result["tag"], "v2026.10.1")
+        self.assertEqual(result["auto"], "true")
+        self.assertEqual(result["commit"], self.git("rev-parse", "HEAD"))
+
+    def test_manual_tag_and_tag_push_both_check_out_exact_version(self):
+        manual = release.resolve_version("workflow_dispatch", "refs/heads/main", " v1.2.3 ", self.root)
+        pushed = release.resolve_version("push", "refs/tags/v1.2.3", root=self.root)
+        self.assertEqual(manual, pushed)
+        self.assertEqual(manual["tag"], "v1.2.3")
+        self.assertEqual(manual["auto"], "false")
+        self.git("commit", "--allow-empty", "-q", "-m", "Different checkout")
+        with self.assertRaisesRegex(RuntimeError, "checkout does not match"):
+            release.resolve_version("workflow_dispatch", "refs/heads/main", "v1.2.3", self.root)
+
+    def test_ci_builds_do_not_create_releases(self):
+        for event, ref in (("push", "refs/heads/main"), ("pull_request", "refs/pull/9/merge")):
+            with self.subTest(event=event):
+                result = release.resolve_version(event, ref, root=self.root)
+                self.assertEqual(result["tag"], "dev-" + self.commit[:7])
+                self.assertEqual(result["publish"], "false")
+
+    def test_automatic_publication_creates_tag_at_built_commit(self):
+        self.api.tag_object = None
+        self.publish_calendar()
+        tag_request = next(payload for method, url, payload in self.api.requests if method == "POST" and url.endswith("/git/refs"))
+        self.assertEqual(tag_request, {"ref": "refs/tags/v2026.10.0", "sha": self.commit})
+        self.assertEqual(self.api.release["target_commitish"], self.commit)
+        self.assertFalse(self.api.release["prerelease"])
+        self.assertFalse(self.api.release["draft"])
+        self.assertEqual(len(self.api.uploads), 9)
+
+    def test_automatic_publication_can_resume_after_creating_tag(self):
+        self.api.tag_object = None
+        self.api.fail_upload = sorted(release.ARCHIVES)[1]
+        with self.assertRaises(release.GitHubAPIError):
+            self.publish_calendar()
+        self.assertEqual(self.api.tag_object, self.commit)
+        self.assertTrue(self.api.release["draft"])
+        self.api.fail_upload = None
+        self.publish_calendar()
+        self.assertFalse(self.api.release["draft"])
+        self.assertEqual(sum(method == "POST" and url.endswith("/git/refs") for method, url, _ in self.api.requests), 1)
+
+    def test_automatic_tag_collision_never_overwrites_existing_tag(self):
+        with self.assertRaisesRegex(RuntimeError, "remote tag"):
+            self.publish_calendar()
+        self.assertFalse(any(method != "GET" for method, _, _ in self.api.requests))
+
+    def test_automatic_dry_run_does_not_create_tag_or_contact_github(self):
+        self.api.tag_object = None
+        output = self.publish_calendar(dry_run=True)
+        self.assertIn("Would create tag: v2026.10.0", output)
+        self.assertEqual(self.api.requests, [])
+        self.assertEqual(self.git("tag", "--list"), "v1.2.3")
+
+    def test_invalid_yaml_fails_before_creating_automatic_tag(self):
+        self.api.tag_object = None
+        self.write_notes('features: [Fine]\nfeatures: [Duplicate]\n')
+        with self.assertRaises(ValueError):
+            self.publish_calendar()
+        self.assertEqual(self.api.requests, [])
+
+    def test_non_calendar_tag_cannot_be_created_automatically(self):
+        with self.assertRaisesRegex(ValueError, "automatic tags"):
+            release.publish_release(self.directory, "v1.2.4", "owner/repo", self.root, self.api, create_tag=True)
+        self.assertEqual(self.api.requests, [])
+
+    def test_yaml_notes_render_sections_title_and_compare_link(self):
+        self.api.tag_object = None
+        self.write_notes('title: Easier installs\nhighlights: |\n  No Go needed.\nfeatures:\n  - "New: **installer**"\nimprovements: [Faster]\nfixes: [Windows update]\nbreaking: []\n')
+        self.publish_calendar()
+        self.assertEqual(self.api.release["name"], "v2026.10.0: Easier installs")
+        self.assertFalse(self.api.release["generate_release_notes"])
+        self.assertIn("### Features\n\n- New: **installer**", self.api.release["body"])
+        self.assertIn("### Improvements\n\n- Faster", self.api.release["body"])
+        self.assertIn("### Fixes\n\n- Windows update", self.api.release["body"])
+        self.assertIn("compare/v1.2.3...v2026.10.0", self.api.release["body"])
+        self.assertNotIn("Breaking changes", self.api.release["body"])
+
+    def test_versioned_notes_override_next_notes(self):
+        self.write_notes('features: [Upcoming]\n')
+        self.write_notes('fixes: [Specific release]\n', "v1.2.3.yaml")
+        self.publish()
+        self.assertIn("Specific release", self.api.release["body"])
+        self.assertNotIn("Upcoming", self.api.release["body"])
+        self.assertIn("commits/v1.2.3", self.api.release["body"])
+
+    def test_unchanged_next_notes_are_not_repeated_in_future_releases(self):
+        self.write_notes('features: [Original feature]\n')
+        self.git("add", "releases/next.yaml")
+        self.git("commit", "-q", "-m", "Original notes")
+        self.git("tag", "v2026.9.0")
+        self.git("commit", "--allow-empty", "-q", "-m", "Later changes")
+        self.assertIsNone(release.release_notes("v2026.10.0", "owner/repo", self.root))
+        self.write_notes('fixes: [New fix]\n')
+        notes = release.release_notes("v2026.10.0", "owner/repo", self.root)
+        self.assertIn("New fix", notes["body"])
+        self.assertIn("compare/v2026.9.0...v2026.10.0", notes["body"])
+
+    def test_existing_release_notes_can_be_updated_without_reuploading_assets(self):
+        self.publish()
+        self.write_notes('title: Clear notes\nfixes: [A fix]\n')
+        self.publish()
+        self.assertEqual(self.api.release["name"], "v1.2.3: Clear notes")
+        self.assertIn("A fix", self.api.release["body"])
+        self.assertEqual(len(self.api.uploads), 9)
 
     def test_first_publish_uses_tag_commit_and_finalizes_after_all_uploads(self):
         self.assertNotEqual(self.tag_object, self.commit)

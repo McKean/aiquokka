@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -11,6 +12,8 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +29,145 @@ ARCHIVES = {
 }
 INSTALLERS = {"install.sh", "install.ps1"}
 EXPECTED_ASSETS = ARCHIVES | INSTALLERS
+NOTES_SECTIONS = {
+    "features": "Features",
+    "improvements": "Improvements",
+    "fixes": "Fixes",
+    "changes": "Changes",
+    "breaking": "Breaking changes",
+}
+
+
+class NotesLoader(yaml.SafeLoader):
+    pass
+
+
+def unique_mapping(loader, node, deep=False):
+    result = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if not isinstance(key, str) or key in result:
+            raise ValueError(f"invalid or duplicate release notes key: {key!r}")
+        result[key] = loader.construct_object(value_node, deep=deep)
+    return result
+
+
+NotesLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
+
+
+def git_output(root, *args):
+    return subprocess.check_output(
+        ["git", *args], cwd=root, text=True, stderr=subprocess.PIPE
+    ).strip()
+
+
+def next_calver_tag(tags, date=None):
+    date = date or datetime.now(timezone.utc).date()
+    prefix = f"v{date.year}.{date.month}."
+    counters = []
+    for tag in tags:
+        matched = TAG_PATTERN.fullmatch(tag)
+        if matched and tag.startswith(prefix):
+            counters.append(int(matched.group(3)))
+    return prefix + str(max(counters, default=-1) + 1)
+
+
+def resolve_version(event, ref, requested_tag="", root=ROOT, date=None):
+    commit = git_output(root, "rev-parse", "HEAD")
+    requested_tag = requested_tag.strip()
+    if event == "workflow_dispatch" and not requested_tag:
+        tags = git_output(root, "tag", "--list").splitlines()
+        tag = next_calver_tag(tags, date)
+        prefix = tag.rsplit(".", 1)[0] + "."
+        existing = [
+            candidate for candidate in git_output(root, "tag", "--points-at", "HEAD").splitlines()
+            if re.fullmatch(re.escape(prefix) + r"(0|[1-9][0-9]*)", candidate)
+        ]
+        if existing:
+            tag = max(existing, key=lambda candidate: int(candidate.rsplit(".", 1)[1]))
+        return {"tag": tag, "commit": commit, "publish": "true", "auto": str(not existing).lower()}
+    if event == "workflow_dispatch" or ref.startswith("refs/tags/"):
+        tag = requested_tag if event == "workflow_dispatch" else ref.removeprefix("refs/tags/")
+        tag_checkout(tag, root)
+        return {"tag": tag, "commit": commit, "publish": "true", "auto": "false"}
+    return {"tag": "dev-" + commit[:7], "commit": commit, "publish": "false", "auto": "false"}
+
+
+def load_notes(path):
+    require_file(path)
+    try:
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=NotesLoader)
+    except yaml.YAMLError as error:
+        raise ValueError(f"invalid YAML in {path}: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} must contain a release notes mapping")
+    unexpected = data.keys() - (NOTES_SECTIONS.keys() | {"title", "highlights"})
+    if unexpected:
+        raise ValueError(f"unknown release notes keys in {path}: {', '.join(sorted(unexpected))}")
+    for key in ("title", "highlights"):
+        if key in data and not isinstance(data[key], str):
+            raise ValueError(f"{key} in {path} must be a string")
+    for key in NOTES_SECTIONS:
+        if key in data and (not isinstance(data[key], list) or any(
+            not isinstance(item, str) or not item.strip() for item in data[key]
+        )):
+            raise ValueError(f"{key} in {path} must be a list of nonempty strings")
+    if not data.get("highlights", "").strip() and not any(data.get(key) for key in NOTES_SECTIONS):
+        raise ValueError(f"{path} has no release notes content")
+    return data
+
+
+def validate_notes(root=ROOT):
+    for path in sorted((root / "releases").glob("*.yaml")):
+        if path.stem != "next":
+            validate_tag(path.stem)
+        load_notes(path)
+        print(f"Validated notes: {path.relative_to(root)}")
+
+
+def previous_release_tag(tag, root=ROOT):
+    version = tuple(map(int, TAG_PATTERN.fullmatch(validate_tag(tag)).groups()[:3]))
+    candidates = []
+    for candidate in git_output(root, "tag", "--merged", "HEAD").splitlines():
+        matched = TAG_PATTERN.fullmatch(candidate)
+        if matched and not matched.group(4):
+            numbers = tuple(map(int, matched.groups()[:3]))
+            if numbers < version:
+                candidates.append((numbers, candidate))
+    return max(candidates)[1] if candidates else None
+
+
+def release_notes(tag, repository, root=ROOT):
+    exact = root / "releases" / f"{tag}.yaml"
+    path = exact if exact.exists() else root / "releases" / "next.yaml"
+    if not path.exists():
+        return None
+    data = load_notes(path)
+    previous = previous_release_tag(tag, root)
+    if path != exact and previous:
+        current_blob = git_output(root, "hash-object", str(path))
+        result = subprocess.run(
+            ["git", "rev-parse", f"refs/tags/{previous}:releases/next.yaml"],
+            cwd=root, text=True, capture_output=True,
+        )
+        if result.returncode == 0 and current_blob == result.stdout.strip():
+            return None
+    title = data.get("title", "").strip()
+    lines = [f"## {title or 'What is new'}"]
+    if data.get("highlights", "").strip():
+        lines.extend(["", data["highlights"].strip()])
+    for key, heading in NOTES_SECTIONS.items():
+        if data.get(key):
+            lines.extend(["", f"### {heading}", ""])
+            lines.extend(f"- {item.strip()}" for item in data[key])
+    encoded_tag = quote(tag, safe="")
+    changelog = (
+        f"https://github.com/{repository}/compare/{quote(previous, safe='')}...{encoded_tag}"
+        if previous else f"https://github.com/{repository}/commits/{encoded_tag}"
+    )
+    lines.extend(["", f"**Full changelog**: {changelog}"])
+    print(f"Using release notes from {path.relative_to(root)}")
+    return {"name": f"{tag}: {title}" if title else tag, "body": "\n".join(lines) + "\n"}
 
 
 class GitHubAPIError(RuntimeError):
@@ -159,21 +301,24 @@ def tag_checkout(tag, root=ROOT):
     return tag_object, commit
 
 
-def create_or_get_release(api, repository, tag, commit):
+def create_or_get_release(api, repository, tag, commit, notes=None):
     url = f"{api.api_url}/repos/{repository}/releases"
     try:
         release = api.request_json("GET", url + "/tags/" + quote(tag, safe=""))
     except GitHubAPIError as error:
         if error.status != 404:
             raise
-        release = api.request_json("POST", url, {
+        payload = {
             "tag_name": tag,
             "target_commitish": commit,
             "name": tag,
             "draft": True,
             "prerelease": "-" in tag.partition("+")[0],
-            "generate_release_notes": True,
-        })
+            "generate_release_notes": notes is None,
+        }
+        if notes:
+            payload.update(notes)
+        release = api.request_json("POST", url, payload)
     if not isinstance(release, dict) or release.get("tag_name") != tag:
         raise RuntimeError("GitHub returned an invalid release response")
     if not isinstance(release.get("id"), int) or not isinstance(release.get("upload_url"), str):
@@ -212,33 +357,59 @@ def replace_assets(api, repository, release, assets):
         print(f"Uploaded: {path.name}")
 
 
-def publish_release(release_dir, tag, repository, root=ROOT, api=None, dry_run=False):
+def ensure_remote_tag(api, repository, tag, expected_object, create_tag=False):
+    url = f"{api.api_url}/repos/{repository}/git/ref/tags/" + quote(tag, safe="")
+    try:
+        remote_tag = api.request_json("GET", url)
+    except GitHubAPIError as error:
+        if error.status != 404 or not create_tag:
+            raise
+        remote_tag = api.request_json("POST", f"{api.api_url}/repos/{repository}/git/refs", {
+            "ref": f"refs/tags/{tag}", "sha": expected_object,
+        })
+        print(f"Created tag: {tag}")
+    if not isinstance(remote_tag, dict) or remote_tag.get("object", {}).get("sha") != expected_object:
+        raise RuntimeError(f"remote tag {tag} does not match the release checkout")
+
+
+def publish_release(release_dir, tag, repository, root=ROOT, api=None, dry_run=False, create_tag=False):
     validate_tag(tag)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("GITHUB_REPOSITORY must be owner/name")
     assets = collect_and_verify_assets(release_dir)
-    tag_object, commit = tag_checkout(tag, root)
+    if create_tag:
+        if not re.fullmatch(r"v[0-9]{4}\.(?:[1-9]|1[0-2])\.(?:0|[1-9][0-9]*)", tag):
+            raise ValueError("automatic tags must use vYEAR.MONTH.COUNTER")
+        tag_object = commit = git_output(root, "rev-parse", "HEAD")
+    else:
+        tag_object, commit = tag_checkout(tag, root)
+    notes = release_notes(tag, repository, root)
     print(f"Release: {repository} {tag} ({commit})")
     if dry_run:
         for path in assets:
             print(f"Validated: {path.name} ({path.stat().st_size} bytes)")
+        if create_tag:
+            print(f"Would create tag: {tag}")
+        if notes:
+            print(notes["body"])
         return
     if api is None:
         token = os.environ.get("GITHUB_TOKEN", "").strip()
         if not token:
             raise RuntimeError("GITHUB_TOKEN is required")
         api = GitHubAPI(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
-    remote_tag = api.request_json("GET", f"{api.api_url}/repos/{repository}/git/ref/tags/" + quote(tag, safe=""))
-    if not isinstance(remote_tag, dict) or remote_tag.get("object", {}).get("sha") != tag_object:
-        raise RuntimeError(f"remote tag {tag} does not match the local tag")
-    release = create_or_get_release(api, repository, tag, commit)
+    ensure_remote_tag(api, repository, tag, tag_object, create_tag)
+    release = create_or_get_release(api, repository, tag, commit, notes)
     replace_assets(api, repository, release, assets)
+    updates = {key: value for key, value in (notes or {}).items() if release.get(key) != value}
     if release.get("draft"):
-        published = api.request_json("PATCH", f"{api.api_url}/repos/{repository}/releases/{release['id']}", {
+        updates.update({
             "draft": False,
             "make_latest": "false" if release.get("prerelease") else "legacy",
         })
-        if not isinstance(published, dict) or published.get("draft") is not False:
+    if updates:
+        published = api.request_json("PATCH", f"{api.api_url}/repos/{repository}/releases/{release['id']}", updates)
+        if not isinstance(published, dict) or any(published.get(key) != value for key, value in updates.items() if key != "make_latest"):
             raise RuntimeError("GitHub did not confirm publication of the release")
     url = release.get("html_url") or f"https://github.com/{repository}/releases/tag/{quote(tag, safe='')}"
     print(f"Published: {url}")
@@ -254,15 +425,30 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--validate-tag", metavar="TAG")
     mode.add_argument("--validate-checkout", metavar="TAG")
+    mode.add_argument("--validate-notes", action="store_true")
+    mode.add_argument("--resolve-version", action="store_true")
     mode.add_argument("--prepare", action="store_true")
     mode.add_argument("--dry-run", action="store_true")
     parser.add_argument("--release-dir", type=Path, default=ROOT / "release")
+    parser.add_argument("--create-tag", action="store_true")
     args = parser.parse_args()
     try:
         if args.validate_tag:
             print(validate_tag(args.validate_tag))
         elif args.validate_checkout:
             print(tag_checkout(args.validate_checkout)[1])
+        elif args.validate_notes:
+            validate_notes()
+        elif args.resolve_version:
+            resolved = resolve_version(
+                os.environ.get("GITHUB_EVENT_NAME", ""),
+                os.environ.get("GITHUB_REF", ""),
+                os.environ.get("REQUESTED_TAG", ""),
+            )
+            print(json.dumps(resolved))
+            if os.environ.get("GITHUB_OUTPUT"):
+                with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                    output.writelines(f"{key}={value}\n" for key, value in resolved.items())
         elif args.prepare:
             for path in prepare_assets(args.release_dir):
                 print(f"Prepared: {path.name}")
@@ -272,6 +458,7 @@ def main():
                 os.environ.get("RELEASE_TAG", "").strip(),
                 os.environ.get("GITHUB_REPOSITORY", "").strip(),
                 dry_run=args.dry_run,
+                create_tag=args.create_tag,
             )
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
