@@ -1,0 +1,154 @@
+name: Build and release
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Leave empty for automatic calendar versioning, or enter an existing tag'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && 'release-publication' || format('ci-{0}', github.ref) }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Validate release publisher
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      commit: ${{ steps.version.outputs.commit }}
+      publish: ${{ steps.version.outputs.publish }}
+      auto: ${{ steps.version.outputs.auto }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install release dependencies
+        run: python -m pip install --disable-pip-version-check -r .github/scripts/requirements.txt
+      - name: Test release publisher
+        run: python -m unittest discover -s .github/scripts -p 'test_*.py'
+      - name: Validate release notes
+        run: python .github/scripts/release.py --validate-notes
+      - name: Resolve release version and checkout
+        id: version
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: python .github/scripts/release.py --resolve-version
+
+  build:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-15
+            goos: darwin
+            goarch: arm64
+          - runner: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - runner: windows-2025
+            goos: windows
+            goarch: amd64
+          - runner: windows-2025
+            goos: windows
+            goarch: arm64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.test.outputs.commit }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test Unix installer
+        if: runner.os != 'Windows'
+        run: python3 scripts/test_install.py
+      - name: Test Windows installer (PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test_install.ps1
+      - name: Test Windows installer (PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/test_install.ps1
+      - name: Build archive
+        env:
+          TARGET_OS: ${{ matrix.goos }}
+          TARGET_ARCH: ${{ matrix.goarch }}
+          BUILD_VERSION: ${{ needs.test.outputs.tag }}
+        run: python scripts/build-release.py "$BUILD_VERSION" --os "$TARGET_OS" --arch "$TARGET_ARCH"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aiquokka-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    if: needs.test.outputs.publish == 'true'
+    needs: [test, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.test.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.test.outputs.commit }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install release dependencies
+        run: python -m pip install --disable-pip-version-check -r .github/scripts/requirements.txt
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: aiquokka-*
+          merge-multiple: true
+          path: release
+      - name: Verify artifacts and generate checksums
+        run: python .github/scripts/release.py --prepare
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CREATE_TAG: ${{ needs.test.outputs.auto }}
+        run: |
+          args=()
+          if [[ "$CREATE_TAG" == true ]]; then
+            args+=(--create-tag)
+          fi
+          python .github/scripts/release.py "${args[@]}"

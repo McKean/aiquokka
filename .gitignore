@@ -1,4 +1,6 @@
 /aiquokka
 /dist/
+/release/
+__pycache__/
 *.out
 tiffer-review.md

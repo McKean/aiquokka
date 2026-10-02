@@ -18,17 +18,152 @@ already stores (or your existing API key). No tokens to paste, no config.
 
 ## Install
 
+Download a prebuilt binary (no Go installation required):
+
 ```sh
-go install github.com/McKean/aiquokka@latest
+curl -fsSL https://github.com/McKean/aiquokka/releases/latest/download/install.sh | sh
 ```
 
-Requires Go (macOS: `brew install go`, Linux: use your package manager or https://go.dev/dl/).
-
-Or build from source:
+The installer detects Linux or macOS and Intel/AMD (`amd64`) or Apple Silicon/ARM
+(`arm64`), verifies the release's SHA-256 checksum, and installs `aiquokka` into
+`~/.local/bin`. macOS binaries require macOS 12 Monterey or newer, matching the
+[Go 1.26 minimum requirements](https://go.dev/wiki/MinimumRequirements).
+If needed, add that directory to your shell's `PATH`:
 
 ```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Run the same installer again to update. To select a version or destination:
+
+```sh
+curl -fsSL https://github.com/McKean/aiquokka/releases/latest/download/install.sh | VERSION=v2026.10.0 BIN_DIR="$HOME/.local/bin" sh
+```
+
+On Windows, run in PowerShell:
+
+```powershell
+irm https://github.com/McKean/aiquokka/releases/latest/download/install.ps1 | iex
+```
+
+The Windows installer supports AMD64 and ARM64, verifies SHA-256, installs into
+`%LOCALAPPDATA%\aiquokka\bin`, and adds that directory to your user `PATH`.
+Open a new terminal after installation. Set `$env:VERSION` or `$env:BIN_DIR`
+before running the installer to customize it. Both installers accept
+`AIQUOKKA_REPO=owner/repo` for releases hosted in a fork.
+
+You can also download and extract an archive directly from
+[GitHub Releases](https://github.com/McKean/aiquokka/releases).
+These commands require a published release containing the installers and binaries.
+
+To build from source, install Go 1.26.5 or newer and clone the repository:
+
+```sh
+git clone https://github.com/McKean/aiquokka.git
+cd aiquokka
 go build -o aiquokka .
 ```
+
+On macOS, source builds also require Xcode Command Line Tools
+(`xcode-select --install`) and CGO enabled. The published module revision with a local
+`replace` directive cannot be installed using `go install ...@latest`.
+
+### Release builds
+
+The [release workflow](.github/workflows/release.yml) tests and builds Linux,
+macOS, and Windows for AMD64 and ARM64. macOS builds use macOS runners with
+CGO enabled; Linux and Windows binaries use `CGO_ENABLED=0`. Windows ARM64 is
+cross-compiled on an AMD64 Windows runner; its runtime tests run on AMD64.
+
+To publish, open **Actions → Build and release → Run workflow**, select `main`,
+and leave the `tag` input empty. The workflow calculates a calendar version
+`vYEAR.MONTH.COUNTER`, using the UTC year and month. The first release in a month
+is `.0`; later releases increment the highest counter found in existing tags.
+For example, `v2026.10.0` is followed by `v2026.10.1`, then `v2026.11.0` in November.
+No version file needs updating. If that commit already has a calendar tag for
+the current month, another run reuses it instead of creating a duplicate release.
+
+All jobs use the same commit and version. After tests and all six builds pass,
+the publication job creates the tag and publishes the archives, `checksums.txt`,
+`install.sh`, and `install.ps1`. Publication runs are serialized to avoid assigning
+the same counter concurrently. Pull requests and pushes to `main` run CI and
+produce downloadable build artifacts; they do not publish automatically.
+
+The publisher in [.github/scripts/release.py](.github/scripts/release.py) uses
+Python's standard library, PyYAML for release notes, and the GitHub Releases API.
+It verifies all six build
+checksums, includes both installers in the final checksum manifest, and keeps a
+new release as a draft until every asset has been uploaded. Repeating the
+workflow reuses an existing release, skips unchanged assets, and replaces
+matching assets when their contents differ. Immutable releases reject changed
+assets.
+
+To publish an existing tag manually, open **Actions → Build and release → Run
+workflow**, select `main`, and enter the tag in the optional `tag` input.
+Pushing a tag also starts publication. Existing SemVer tags remain supported;
+prerelease tags such as `v2026.10.0-rc.1` publish prereleases. Every job checks
+out the selected tag's commit, so the binary version and release match.
+The tag must already exist on GitHub and contain this workflow and its scripts.
+The workflow uses GitHub's built-in `GITHUB_TOKEN` with `contents: write` only
+in the publication job; no personal token is needed. Publication runs for tag
+pushes and manual release runs.
+
+Describe each release in [releases/next.yaml](releases/next.yaml), without a
+version field or a filename to rename:
+
+```yaml
+title: Faster and easier installs
+highlights: |
+  Install aiquokka without a Go toolchain.
+features:
+  - Prebuilt binaries for Linux, macOS, and Windows.
+improvements:
+  - Faster installation and updates.
+fixes:
+  - Updating an existing Windows installation works in PowerShell 5.1 and 7.
+changes: []
+breaking: []
+```
+
+The publisher renders the title, highlights, and nonempty sections into the
+GitHub Release and adds a full changelog link. CI rejects invalid YAML, duplicate
+or unknown keys, and empty notes. Edit the file before each release; its contents
+are preserved in that release's tag. Optional `releases/<tag>.yaml` files take
+precedence for a specific version. When `next.yaml` is unchanged from the
+previous stable release, or no notes file exists, GitHub generates the notes
+instead of repeating old highlights.
+
+For a local archive, use Python 3 and Go:
+
+```sh
+python3 scripts/build-release.py v2026.10.0
+python3 scripts/build-release.py v2026.10.0 --os linux --arch arm64
+```
+
+Archives and individual `.sha256` files are written to `dist/`. macOS builds
+require a macOS host; both architectures can be built there. Release binaries
+report their tag with `aiquokka --version`.
+
+To validate the publisher and prepare a local release bundle without publishing:
+
+```sh
+python3 -m pip install -r .github/scripts/requirements.txt
+python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+python3 .github/scripts/release.py --validate-notes
+python3 .github/scripts/release.py --validate-tag v2026.10.0
+python3 .github/scripts/release.py --prepare --release-dir dist
+```
+
+From a checkout of the release tag, `--dry-run` also verifies that `HEAD` matches
+the tag and lists the assets without contacting GitHub:
+
+```sh
+RELEASE_TAG=v2026.10.0 GITHUB_REPOSITORY=McKean/aiquokka python3 .github/scripts/release.py --dry-run --release-dir dist
+```
+
+For a new calendar tag that does not exist yet, add `--create-tag` to the dry
+run. It validates the bundle and notes and reports the planned tag without
+creating it or contacting GitHub.
 
 ## Usage
 

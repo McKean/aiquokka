@@ -1,0 +1,17 @@
+title: Install prebuilt binaries without Go
+highlights: |
+  Install or update aiquokka directly from GitHub Releases with curl on Linux
+  and macOS, or PowerShell on Windows. No Go toolchain is required.
+features:
+  - Prebuilt binaries for Linux, macOS, and Windows on AMD64 and ARM64.
+  - SHA-256 verified installers for Unix and Windows.
+  - Automatic calendar versions using the year, month, and release counter.
+improvements:
+  - Release notes are declared in YAML and rendered into the GitHub Release.
+  - GitHub Actions tests and packages all six targets before publication.
+  - Interrupted releases can resume without uploading unchanged assets again.
+fixes:
+  - Windows updates replace an existing executable correctly in PowerShell 5.1 and 7.
+changes:
+  - Installers are the recommended installation method while go.mod uses a local systray replacement.
+breaking: []
