@@ -11,7 +11,9 @@ already stores (or your existing API key). No tokens to paste, no config.
 - **Pace marker** — each bar shows where even, linear usage would put you right
   now, so you can tell at a glance if you're burning too fast.
 - **Auto token refresh** — expired OAuth tokens are refreshed and written back.
-- **Scriptable** — `--json` / `--yaml` for machine-readable output.
+- **Scriptable** — `--json` / `--yaml` for machine-readable output, with a
+  stable id per window, `--no-refresh` for polling and an exit code of its own
+  for "not logged in".
 - **Live watch** — `--watch` / `-w` refreshes the view every 60 seconds.
 - **Menu bar app** — `aiquokka tray` keeps your limits in the macOS menu bar or
   Linux system tray and alerts you before you hit them.
@@ -133,17 +135,103 @@ Add `--json` or `--yaml` (alias `--yml`) to any command. The aggregate view
 keys the object by provider.
 
 ```
-$ aiquokka grok --yml
-provider: Grok
-plan: XPremium
-windows:
-  - label: Weekly
-    used_percent: 0
-    resets_at: 2026-07-25T07:05:43.476608Z
-extra:
-  - label: Grok Code
-    value: "yes"
+$ aiquokka grok --json
+{
+  "provider": "Grok",
+  "plan": "XPremium",
+  "account": {
+    "id": "0b6f…",
+    "email": "you@example.com"
+  },
+  "windows": [
+    {
+      "id": "weekly",
+      "label": "Weekly",
+      "used_percent": 0,
+      "resets_at": "2026-07-25T07:05:43.476608Z",
+      "duration_seconds": 604800
+    }
+  ],
+  "extra": [
+    {
+      "label": "Grok Code",
+      "value": "yes"
+    }
+  ]
+}
 ```
+
+Per window:
+
+- `id` names the window for a program. It is unique within the provider and
+  stays the same when the display `label` is reworded, so match on `id`, never
+  on `label`. Where the provider has its own name for the limit, that is the
+  id; otherwise it is the window's length.
+- `duration_seconds` is the window's length. It is left out when the provider
+  does not say (a balance, a Z.ai bundle, Kiro's credits).
+- `resets_at` is left out when there is no known reset.
+
+| Provider | Window ids |
+| --- | --- |
+| `claude` | `session` (5h), `weekly_all`, `weekly_scoped` (Weekly Fable): the endpoint's limit kinds |
+| `codex` | the length: `5h`, `7d`; `primary` / `secondary` if the length is not reported |
+| `kimi` | the length for each rolling limit (`5h`), and `weekly` |
+| `grok` | the period type: `weekly`, `monthly`, `daily` |
+| `copilot` | `premium_interactions`, `chat`, `completions` |
+| `deepseek` | `balance/<currency>`, e.g. `balance/cny` |
+| `kiro` | `credits` |
+| `agy` | `<group>/<bucket>` from agy's names, e.g. `gemini-3-pro/weekly` |
+| `zai` | `bundle/<model>`, e.g. `bundle/glm-5.3`, and `cash` |
+
+`account` says whose login the answer is for: `id` is the provider's own
+identifier and `email` the address, each present only if the stored login holds
+it. No token or key is ever printed.
+
+| Provider | `account` |
+| --- | --- |
+| `claude` | `id`, `email` (from `~/.claude.json`, where Claude Code records the account at login) |
+| `codex` | `id` (the ChatGPT account id), `email` (from the stored id token) |
+| `grok` | `id`, `email` |
+| `copilot` | `id` (the GitHub login) |
+| `kimi`, `deepseek`, `zai` | left out: the stored token or API key names no account |
+| `kiro`, `agy` | left out: the login stays with that CLI, aiquokka never reads it |
+
+#### Asking without touching a login
+
+By default an expired token is renewed and written back, which makes aiquokka a
+second writer of a login beside the CLI that owns it. A program that polls
+should pass `--no-refresh`: aiquokka then never renews a token and never writes
+a stored login. A provider whose token has expired (or is rejected) is reported
+as not known, with the reason:
+
+```
+$ aiquokka claude --json --no-refresh
+aiquokka: Claude token has expired or was rejected and --no-refresh is set — run `claude` to renew it
+$ echo $?
+1
+$ aiquokka --json --no-refresh
+{
+  "claude": {
+    "error": "Claude token has expired or was rejected and --no-refresh is set — run `claude` to renew it"
+  },
+  "codex": { … }
+}
+```
+
+`kiro` and `agy` are answered by their own CLIs, which renew their own logins
+as they see fit; `--no-refresh` does not reach into them.
+
+#### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The answer is on stdout. |
+| `1` | Any other failure: the network, the provider's endpoint, an expired token under `--no-refresh`, a wrong command line. The reason is on stderr. |
+| `3` | Not logged in to this provider: no stored login, no API key, or its CLI is not installed. Nothing to report, and trying again will not help. |
+
+`3` is only for a single provider (`aiquokka claude`). The aggregate view exits
+`0` whenever it could print: it leaves out providers without a login and gives a
+failing one as `{"error": "…"}` under its key.
 
 ## The pace marker
 
@@ -178,6 +266,8 @@ machine and queries the same usage endpoint that CLI uses.
 Every provider that uses a short-lived OAuth access token (all except the
 static API-key providers Kimi and DeepSeek) **refreshes automatically** when
 the token has expired and writes the new token back to the credential file.
+Pass `--no-refresh` to forbid both (see
+[Asking without touching a login](#asking-without-touching-a-login)).
 
 ### Claude Code on macOS
 

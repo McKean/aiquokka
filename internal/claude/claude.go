@@ -59,6 +59,7 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 	report := &usage.Report{
 		Provider: "Claude",
 		Plan:     plan(creds),
+		Account:  loadAccount(),
 	}
 	for _, w := range []*usage.Window{
 		resp.window("session", "5h", 5*time.Hour),
@@ -91,7 +92,8 @@ func (resp *usageResponse) window(kind, label string, d time.Duration) *usage.Wi
 		if l.Kind != kind || l.Percent == nil {
 			continue
 		}
-		out := usage.Window{Label: label, UsedPercent: l.Percent, Duration: d}
+		// The endpoint's own kind is the ID: it outlives a reworded label.
+		out := usage.Window{ID: kind, Label: label, UsedPercent: l.Percent, Duration: d}
 		if t, err := time.Parse(time.RFC3339, l.ResetsAt); err == nil {
 			out.ResetsAt = t
 		}

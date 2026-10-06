@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/McKean/aiquokka/internal/httpx"
+	"github.com/McKean/aiquokka/internal/usage"
 )
 
 // tokenEndpoint derives the OIDC token endpoint from the issuer (auth.x.ai for
@@ -34,6 +35,9 @@ type tokenResponse struct {
 // refresh exchanges the refresh token for a fresh access token, updates the
 // account in place, and persists it back to auth.json under storeKey.
 func refresh(ctx context.Context, a *account, storeKey string) error {
+	if !usage.RefreshAllowed(ctx) {
+		return usage.NoRefresh("Grok", "grok")
+	}
 	if a.RefreshToken == "" || a.OIDCClientID == "" {
 		return fmt.Errorf("Grok token expired and cannot be refreshed (missing refresh token) — run `grok` to re-login")
 	}

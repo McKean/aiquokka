@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/McKean/aiquokka/internal/httpx"
+	"github.com/McKean/aiquokka/internal/usage"
 )
 
 // claudeCodeClientID is Claude Code's public OAuth client id.
@@ -32,6 +33,9 @@ type refreshResponse struct {
 // refresh exchanges the refresh token for a fresh access token, updates o in
 // place, and persists the result back to the credentials file.
 func refresh(ctx context.Context, o *oauth) error {
+	if !usage.RefreshAllowed(ctx) {
+		return usage.NoRefresh("Claude", "claude")
+	}
 	if o.RefreshToken == "" {
 		return fmt.Errorf("access token expired and no refresh token available — run `claude` to re-login")
 	}

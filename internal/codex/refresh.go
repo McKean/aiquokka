@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/McKean/aiquokka/internal/httpx"
+	"github.com/McKean/aiquokka/internal/usage"
 )
 
 // refreshEndpoint and codexClientID are Codex CLI's OAuth values.
@@ -33,6 +34,9 @@ type refreshResponse struct {
 
 // refresh exchanges the refresh token, updates auth in place, and persists it.
 func refresh(ctx context.Context, auth *authFile) error {
+	if !usage.RefreshAllowed(ctx) {
+		return usage.NoRefresh("Codex", "codex")
+	}
 	reqBody, _ := json.Marshal(refreshRequest{
 		ClientID:     codexClientID,
 		GrantType:    "refresh_token",

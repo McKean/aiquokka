@@ -79,3 +79,23 @@ func TestParseMoney(t *testing.T) {
 		t.Fatal("parseMoney(\"\") should error")
 	}
 }
+
+// The label names the currency only when there are several; the ID always does.
+func TestBalanceWindowIDNamesTheCurrency(t *testing.T) {
+	single := reportFromResponse(&balanceResponse{IsAvailable: true, BalanceInfos: []balanceInfo{
+		{Currency: "CNY", TotalBalance: "110.00"},
+	}})
+	if w := single.Windows[0]; w.ID != "balance/cny" || w.Label != "Balance" {
+		t.Fatalf("single currency window = %+v", w)
+	}
+	multi := reportFromResponse(&balanceResponse{IsAvailable: true, BalanceInfos: []balanceInfo{
+		{Currency: "CNY", TotalBalance: "110.00"},
+		{Currency: "USD", TotalBalance: "5.00"},
+	}})
+	if multi.Windows[0].ID != "balance/cny" || multi.Windows[1].ID != "balance/usd" {
+		t.Fatalf("multi currency windows = %+v", multi.Windows)
+	}
+	if id := balanceID(""); id != "balance" {
+		t.Fatalf("balanceID without a currency = %q", id)
+	}
+}

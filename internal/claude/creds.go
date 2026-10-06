@@ -162,3 +162,27 @@ func parseCredentials(data []byte) (*oauth, bool, error) {
 	}
 	return &o, true, nil
 }
+
+// loadAccount reads who is logged in from ~/.claude.json, where Claude Code
+// records the account at login (the credential itself, file or Keychain,
+// holds only tokens). It returns nil when the file or the entry is missing.
+func loadAccount() *usage.Account {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		return nil
+	}
+	var cfg struct {
+		OAuthAccount struct {
+			AccountUUID  string `json:"accountUuid"`
+			EmailAddress string `json:"emailAddress"`
+		} `json:"oauthAccount"`
+	}
+	if json.Unmarshal(data, &cfg) != nil {
+		return nil
+	}
+	return usage.NewAccount(cfg.OAuthAccount.AccountUUID, cfg.OAuthAccount.EmailAddress)
+}

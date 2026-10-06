@@ -14,7 +14,10 @@ import (
 	"github.com/McKean/aiquokka/internal/usage"
 )
 
+// appData is one entry of apps.json / hosts.json. User is the GitHub login the
+// token belongs to.
 type appData struct {
+	User       string `json:"user"`
 	OAuthToken string `json:"oauth_token"`
 }
 
@@ -34,7 +37,7 @@ type copilotResponse struct {
 	} `json:"quota_snapshots"`
 }
 
-func getToken() (string, error) {
+func getToken() (appData, error) {
 	var paths []string
 	if home, err := os.UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, ".config", "github-copilot", "apps.json"))
@@ -56,16 +59,16 @@ func getToken() (string, error) {
 		}
 		for _, app := range apps {
 			if app.OAuthToken != "" {
-				return app.OAuthToken, nil
+				return app, nil
 			}
 		}
 	}
-	return "", usage.NotConfigured("no Copilot credentials found in ~/.config/github-copilot/ (try signing in with your IDE)")
+	return appData{}, usage.NotConfigured("no Copilot credentials found in ~/.config/github-copilot/ (try signing in with your IDE)")
 }
 
 // Fetch reads local Copilot credentials and returns the current usage.
 func Fetch(ctx context.Context) (*usage.Report, error) {
-	token, err := getToken()
+	app, err := getToken()
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +76,7 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Authorization", "token "+app.OAuthToken)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Editor-Version", "vscode/1.96.2")
 	req.Header.Set("Editor-Plugin-Version", "copilot-chat/0.26.7")
@@ -94,7 +97,7 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 		return nil, fmt.Errorf("decoding usage: %w", err)
 	}
 
-	report := &usage.Report{Provider: "Copilot", Plan: out.CopilotPlan}
+	report := &usage.Report{Provider: "Copilot", Plan: out.CopilotPlan, Account: usage.NewAccount(app.User, "")}
 
 	var resetsAt time.Time
 	var duration time.Duration
@@ -107,12 +110,14 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 		}
 	}
 
-	addWindow := func(label string, snap *struct {
+	// Each ID is the snapshot's own key in quota_snapshots.
+	addWindow := func(id, label string, snap *struct {
 		PercentRemaining float64 `json:"percent_remaining"`
 	}) {
 		if snap != nil {
 			used := 100.0 - snap.PercentRemaining
 			report.Windows = append(report.Windows, usage.Window{
+				ID:          id,
 				Label:       label,
 				UsedPercent: &used,
 				ResetsAt:    resetsAt,
@@ -121,9 +126,9 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 		}
 	}
 
-	addWindow("Premium", out.QuotaSnapshots.PremiumInteractions)
-	addWindow("Chat", out.QuotaSnapshots.Chat)
-	addWindow("Completions", out.QuotaSnapshots.Completions)
+	addWindow("premium_interactions", "Premium", out.QuotaSnapshots.PremiumInteractions)
+	addWindow("chat", "Chat", out.QuotaSnapshots.Chat)
+	addWindow("completions", "Completions", out.QuotaSnapshots.Completions)
 
 	return report, nil
 }

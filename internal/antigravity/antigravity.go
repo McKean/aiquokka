@@ -72,6 +72,8 @@ func parseUsage(raw []byte) (*usage.Report, error) {
 		for _, b := range group.Buckets {
 			used := (1.0 - b.RemainingFraction) * 100.0
 			w := usage.Window{
+				// agy gives a bucket no identifier but its names.
+				ID:          usage.Slug(group.Name) + "/" + usage.Slug(b.Name),
 				Label:       fmt.Sprintf("%s - %s", group.Name, b.Name),
 				UsedPercent: &used,
 			}

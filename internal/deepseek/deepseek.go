@@ -98,6 +98,7 @@ func reportFromResponse(resp *balanceResponse) *usage.Report {
 		}
 		tag := currencyTag(info, multi)
 		report.Windows = append(report.Windows, usage.Window{
+			ID:        balanceID(info.Currency),
 			Label:     "Balance" + tag,
 			Remaining: &total,
 			Currency:  info.Currency,
@@ -120,6 +121,15 @@ func reportFromResponse(resp *balanceResponse) *usage.Report {
 		report.Extra = append(report.Extra, usage.Fact{Label: "Balance", Value: "unknown"})
 	}
 	return report
+}
+
+// balanceID names a balance by its currency whether or not the label shows it:
+// the label carries the currency only when several are reported.
+func balanceID(currency string) string {
+	if currency == "" {
+		return "balance"
+	}
+	return "balance/" + strings.ToLower(currency)
 }
 
 // currencyTag adds a " (CNY)" suffix when multiple currencies are reported so

@@ -119,7 +119,7 @@ func parseUsage(raw string, now time.Time) (*usage.Report, error) {
 		return nil, fmt.Errorf("parsing Kiro credit limit %q", match[2])
 	}
 	percent := math.Min(100, math.Max(0, used/limit*100))
-	window := usage.Window{Label: "Credits", UsedPercent: &percent}
+	window := usage.Window{ID: "credits", Label: "Credits", UsedPercent: &percent}
 	if reset := resetPattern.FindStringSubmatch(text); len(reset) == 3 {
 		month, _ := strconv.Atoi(reset[1])
 		day, _ := strconv.Atoi(reset[2])

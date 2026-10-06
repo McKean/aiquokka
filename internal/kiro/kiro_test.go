@@ -27,6 +27,9 @@ func TestParseUsage(t *testing.T) {
 		t.Fatalf("got %d windows, want 1", len(report.Windows))
 	}
 	window := report.Windows[0]
+	if window.ID != "credits" {
+		t.Fatalf("window ID = %q, want credits", window.ID)
+	}
 	if window.UsedPercent == nil || math.Abs(*window.UsedPercent-0.294) > 0.000001 {
 		t.Fatalf("used percent = %v, want 0.294", window.UsedPercent)
 	}

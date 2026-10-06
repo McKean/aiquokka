@@ -10,6 +10,6 @@ import (
 func main() {
 	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "aiquokka: "+err.Error())
-		os.Exit(1)
+		os.Exit(cmd.ExitCode(err))
 	}
 }

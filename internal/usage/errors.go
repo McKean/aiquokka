@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -28,3 +29,36 @@ func (e *notConfiguredError) Unwrap() error { return ErrNotConfigured }
 func IsNotConfigured(err error) bool {
 	return errors.Is(err, ErrNotConfigured)
 }
+
+// ErrNoRefresh marks a fetch that stopped because the stored token has expired
+// (or was rejected) and the caller forbade refreshing it.
+var ErrNoRefresh = errors.New("token not refreshed")
+
+type noRefreshKey struct{}
+
+// WithoutRefresh returns a context under which no provider renews a token or
+// writes to a stored login. A program that polls aiquokka beside the agents'
+// own CLIs uses it so that it is never a second writer of their credentials.
+func WithoutRefresh(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRefreshKey{}, true)
+}
+
+// RefreshAllowed reports whether ctx lets a provider renew its token.
+func RefreshAllowed(ctx context.Context) bool {
+	off, _ := ctx.Value(noRefreshKey{}).(bool)
+	return !off
+}
+
+// NoRefresh builds the error a provider returns instead of refreshing: it
+// names the provider and the CLI that renews the login, and matches
+// ErrNoRefresh under errors.Is.
+//
+//	return usage.NoRefresh("Claude", "claude")
+func NoRefresh(provider, cli string) error {
+	return &noRefreshError{msg: fmt.Sprintf("%s token has expired or was rejected and --no-refresh is set — run `%s` to renew it", provider, cli)}
+}
+
+type noRefreshError struct{ msg string }
+
+func (e *noRefreshError) Error() string { return e.msg }
+func (e *noRefreshError) Unwrap() error { return ErrNoRefresh }

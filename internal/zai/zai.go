@@ -150,6 +150,7 @@ func reportFromBundles(bundles []bundle) *usage.Report {
 		}
 		used := b.TokensMagnitude - b.AvailableBalance
 		report.Windows = append(report.Windows, usage.Window{
+			ID:    bundleID(b),
 			Label: bundleLabel(b, bundles),
 			Used:  &used,
 			Limit: &b.TokensMagnitude,
@@ -169,6 +170,16 @@ func reportFromBundles(bundles []bundle) *usage.Report {
 	return report
 }
 
+// bundleID names a bundle by the model it is for, whether or not the label
+// shows it: the label carries the model only when several bundles are listed.
+// Two effective bundles for one model share an ID.
+func bundleID(b bundle) string {
+	if b.SuitableModel == "" {
+		return "bundle"
+	}
+	return "bundle/" + usage.Slug(b.SuitableModel)
+}
+
 // bundleLabel names a bundle window, adding the model when several bundles
 // (or the bundle itself) make the target model relevant.
 func bundleLabel(b bundle, bundles []bundle) string {
@@ -186,6 +197,7 @@ func appendCash(report *usage.Report, cash *accountData) {
 	}
 	balance := cash.Balance
 	report.Windows = append(report.Windows, usage.Window{
+		ID:        "cash",
 		Label:     "Cash",
 		Remaining: &balance,
 		Currency:  currency(),

@@ -189,3 +189,20 @@ func TestAppendCashNil(t *testing.T) {
 		t.Fatalf("Windows = %d, want 0", len(report.Windows))
 	}
 }
+
+// The label names the model only when there are several bundles; the ID
+// always does.
+func TestBundleAndCashWindowIDs(t *testing.T) {
+	one := []bundle{{Status: "EFFECTIVE", SuitableModel: "GLM-5.3", TokensMagnitude: 100, AvailableBalance: 40}}
+	report := reportFromBundles(one)
+	if w := report.Windows[0]; w.ID != "bundle/glm-5.3" || w.Label != "Bundle" {
+		t.Fatalf("bundle window = %+v", w)
+	}
+	appendCash(report, &accountData{Balance: 3})
+	if w := report.Windows[1]; w.ID != "cash" {
+		t.Fatalf("cash window = %+v", w)
+	}
+	if id := bundleID(bundle{}); id != "bundle" {
+		t.Fatalf("bundleID without a model = %q", id)
+	}
+}

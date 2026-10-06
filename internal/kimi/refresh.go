@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/McKean/aiquokka/internal/httpx"
+	"github.com/McKean/aiquokka/internal/usage"
 )
 
 // Kimi Code's OAuth device-flow token endpoint and public client id (extracted
@@ -38,6 +39,9 @@ func clientID() string {
 // refresh exchanges the refresh token for a fresh access token, updates c in
 // place, and writes the result back to the credentials file.
 func refresh(ctx context.Context, c *credentials) error {
+	if !usage.RefreshAllowed(ctx) {
+		return usage.NoRefresh("Kimi", "kimi")
+	}
 	if c.refreshToken == "" {
 		return fmt.Errorf("Kimi token expired and no refresh token available — run `kimi` to re-login")
 	}

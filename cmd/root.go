@@ -12,6 +12,7 @@ import (
 	"github.com/McKean/aiquokka/internal/grok"
 	"github.com/McKean/aiquokka/internal/kimi"
 	"github.com/McKean/aiquokka/internal/kiro"
+	"github.com/McKean/aiquokka/internal/usage"
 	"github.com/McKean/aiquokka/internal/zai"
 	"github.com/spf13/cobra"
 )
@@ -36,6 +37,9 @@ var (
 	yamlOut bool
 	watch   bool
 )
+
+// noRefresh forbids renewing an expired token or writing a stored login.
+var noRefresh bool
 
 // watchInterval is how long --watch waits between refreshes.
 const watchInterval = 60 * time.Second
@@ -69,6 +73,7 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolVar(&yamlOut, "yaml", false, "emit raw YAML instead of rendered output")
 	root.PersistentFlags().BoolVar(&yamlOut, "yml", false, "alias for --yaml")
 	root.PersistentFlags().BoolVarP(&watch, "watch", "w", false, "refresh every 60s (r refresh, q close)")
+	root.PersistentFlags().BoolVar(&noRefresh, "no-refresh", false, "never renew an expired token or write a stored login; report the provider as not known instead")
 	root.MarkFlagsMutuallyExclusive("json", "yaml")
 	root.MarkFlagsMutuallyExclusive("json", "yml")
 
@@ -88,4 +93,23 @@ func newRootCmd() *cobra.Command {
 // Execute runs the root command.
 func Execute() error {
 	return newRootCmd().Execute()
+}
+
+// Exit statuses. A script tells "this provider has no login here" (nothing to
+// report, and retrying will not help) from a failure that may pass. 2 is left
+// free: shells and many tools use it for a wrong command line.
+const (
+	ExitFailure     = 1
+	ExitNotLoggedIn = 3
+)
+
+// ExitCode maps the error Execute returned to the process's exit status.
+func ExitCode(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case usage.IsNotConfigured(err):
+		return ExitNotLoggedIn
+	}
+	return ExitFailure
 }

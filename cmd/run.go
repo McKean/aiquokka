@@ -34,6 +34,14 @@ func emit(v any) error {
 	return enc.Encode(v)
 }
 
+// fetchContext applies the flags that govern a fetch to its context.
+func fetchContext(ctx context.Context) context.Context {
+	if noRefresh {
+		return usage.WithoutRefresh(ctx)
+	}
+	return ctx
+}
+
 // fetcher fetches a usage report for one provider.
 type fetcher func(ctx context.Context) (*usage.Report, error)
 
@@ -47,7 +55,7 @@ type provider struct {
 // With --watch, it refreshes every watchInterval until interrupted.
 func run(f fetcher) error {
 	return maybeWatch(func(parent context.Context) error {
-		ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+		ctx, cancel := context.WithTimeout(fetchContext(parent), 20*time.Second)
 		defer cancel()
 
 		report, err := f(ctx)
@@ -151,7 +159,7 @@ type fetchResult struct {
 // With --watch, the whole view refreshes every watchInterval until interrupted.
 func runAll(providers []provider) error {
 	return maybeWatch(func(parent context.Context) error {
-		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+		ctx, cancel := context.WithTimeout(fetchContext(parent), 30*time.Second)
 		defer cancel()
 
 		if structured() {

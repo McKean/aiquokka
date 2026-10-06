@@ -336,7 +336,7 @@ func summarize(results []fetchResult, threshold int) traySummary {
 }
 
 func (a *trayApp) fetchAndUpdate() {
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(fetchContext(context.Background()), 25*time.Second)
 	defer cancel()
 
 	results := fetchAll(ctx, a.providers)
