@@ -1,10 +1,16 @@
 package zai
 
 import (
+	"context"
+	"net/http"
+	"sync"
+	"time"
+
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/McKean/aiquokka/internal/httpx/httpxtest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -204,5 +210,71 @@ func TestBundleAndCashWindowIDs(t *testing.T) {
 	}
 	if id := bundleID(bundle{}); id != "bundle" {
 		t.Fatalf("bundleID without a model = %q", id)
+	}
+}
+
+// Bundles and cash are asked for at once, not one after the other: the stub
+// answers a request only once both are in flight.
+func TestFetchAsksBundlesAndCashAtOnce(t *testing.T) {
+	t.Setenv("ZAI_API_KEY", "myid.mysecret")
+	t.Setenv("ZAI_BASE_URL", "")
+	var mu sync.Mutex
+	waiting := 0
+	both := make(chan struct{})
+	httpxtest.Stub(t, func(r *http.Request) (int, string) {
+		mu.Lock()
+		waiting++
+		if waiting == 2 {
+			close(both)
+		}
+		mu.Unlock()
+		select {
+		case <-both:
+		case <-time.After(2 * time.Second):
+			t.Errorf("%s was not in flight together with the other call", r.URL.Path)
+		}
+		if strings.HasSuffix(r.URL.Path, "/tokenAccounts/list/my") {
+			return http.StatusOK, `{"rows":[{"status":"EFFECTIVE","tokensMagnitude":100,"availableBalance":40}]}`
+		}
+		return http.StatusOK, `{"success":true,"data":{"balance":3.5}}`
+	})
+
+	report, err := Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Windows) != 2 || report.Windows[0].ID != "bundle" || report.Windows[1].ID != "cash" {
+		t.Fatalf("windows = %+v", report.Windows)
+	}
+}
+
+// A failed cash call stays non-fatal; a failed bundles call is the provider's
+// error.
+func TestFetchErrorsOfTheTwoCalls(t *testing.T) {
+	t.Setenv("ZAI_API_KEY", "myid.mysecret")
+	t.Setenv("ZAI_BASE_URL", "")
+	failing := ""
+	httpxtest.Stub(t, func(r *http.Request) (int, string) {
+		if strings.HasSuffix(r.URL.Path, failing) {
+			return http.StatusInternalServerError, `down`
+		}
+		if strings.HasSuffix(r.URL.Path, "/tokenAccounts/list/my") {
+			return http.StatusOK, `{"rows":[{"status":"EFFECTIVE","tokensMagnitude":100,"availableBalance":40}]}`
+		}
+		return http.StatusOK, `{"success":true,"data":{"balance":3.5}}`
+	})
+
+	failing = "/query-customer-account-report"
+	report, err := Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Windows) != 1 || report.Extra[len(report.Extra)-1].Value != "unavailable" {
+		t.Fatalf("report without cash = %+v", report)
+	}
+
+	failing = "/tokenAccounts/list/my"
+	if _, err := Fetch(context.Background()); err == nil || !strings.Contains(err.Error(), "down") {
+		t.Fatalf("err = %v, want the bundles call's error", err)
 	}
 }

@@ -2,12 +2,19 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/McKean/aiquokka/internal/httpx"
 	"github.com/McKean/aiquokka/internal/usage"
 )
 
@@ -174,5 +181,137 @@ func TestWatchLoopErrorExits(t *testing.T) {
 	}
 	if n.Load() != 1 {
 		t.Fatalf("calls = %d, want 1 (should not retry on error)", n.Load())
+	}
+}
+
+// captureStdout returns what fn writes to os.Stdout.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = w
+	out := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		out <- string(b)
+	}()
+	fn()
+	os.Stdout = original
+	w.Close()
+	return <-out
+}
+
+// answeredAndSilent returns a provider that answers at once and one that never
+// does: each of its requests goes to a server that sleeps past httpx's
+// timeout, shortened for the test, and it asks again until its context ends.
+func answeredAndSilent(t *testing.T) []provider {
+	t.Helper()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	original := httpx.Client.Timeout
+	httpx.Client.Timeout = 50 * time.Millisecond
+	// The silent provider outlives the output; it ends with the test's
+	// context, and only then is the timeout it reads put back.
+	var silent sync.WaitGroup
+	t.Cleanup(func() {
+		silent.Wait()
+		httpx.Client.Timeout = original
+		close(release)
+		srv.Close()
+	})
+
+	used := 10.0
+	return []provider{
+		{name: "Quick", fetch: func(context.Context) (*usage.Report, error) {
+			return &usage.Report{
+				Provider: "Quick",
+				Windows:  []usage.Window{{Label: "5h", UsedPercent: &used}},
+			}, nil
+		}},
+		{name: "Silent", fetch: func(ctx context.Context) (*usage.Report, error) {
+			silent.Add(1)
+			defer silent.Done()
+			for ctx.Err() == nil {
+				httpx.GetJSON(ctx, srv.URL, nil, nil)
+			}
+			return nil, ctx.Err()
+		}},
+		{name: "Unused", fetch: func(context.Context) (*usage.Report, error) {
+			return nil, usage.NotConfigured("no login")
+		}},
+	}
+}
+
+// One provider that never answers must not hold the batch output: the others
+// print at httpx's timeout, and the late one is reported like a failed one.
+func TestRunAllBatchDoesNotWaitForASilentProvider(t *testing.T) {
+	providers := answeredAndSilent(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	start := time.Now()
+	out := captureStdout(t, func() {
+		if err := runAllBatch(ctx, providers); err != nil {
+			t.Error(err)
+		}
+	})
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("batch output took %s", took)
+	}
+	if !strings.HasPrefix(out, "Quick\n") || !strings.Contains(out, "5h") {
+		t.Fatalf("the provider that answered is missing:\n%s", out)
+	}
+	if !strings.Contains(out, "\nSilent\n──────\n  did not answer within 50ms\n") {
+		t.Fatalf("the silent provider is not reported as not answered:\n%s", out)
+	}
+	if strings.Contains(out, "Unused") {
+		t.Fatalf("an unconfigured provider is shown:\n%s", out)
+	}
+}
+
+func TestRunAllStructuredDoesNotWaitForASilentProvider(t *testing.T) {
+	providers := answeredAndSilent(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	jsonOut = true
+	t.Cleanup(func() { jsonOut = false })
+
+	out := captureStdout(t, func() {
+		if err := runAllStructured(ctx, providers); err != nil {
+			t.Error(err)
+		}
+	})
+	var got map[string]map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%v:\n%s", err, out)
+	}
+	if len(got) != 2 || got["quick"]["provider"] != "Quick" {
+		t.Fatalf("output = %s", out)
+	}
+	if got["silent"]["error"] != "did not answer within 50ms" {
+		t.Fatalf("the silent provider is not reported as not answered: %s", out)
+	}
+}
+
+// The tray and the tests that go through fetchAll still get every answer.
+func TestFetchAllWaitsForEveryProvider(t *testing.T) {
+	original := httpx.Client.Timeout
+	httpx.Client.Timeout = 10 * time.Millisecond
+	t.Cleanup(func() { httpx.Client.Timeout = original })
+
+	slow := provider{name: "Slow", fetch: func(context.Context) (*usage.Report, error) {
+		time.Sleep(100 * time.Millisecond)
+		return &usage.Report{Provider: "Slow"}, nil
+	}}
+	if r := fetchAll(context.Background(), []provider{slow}); r[0].err != nil || r[0].report == nil {
+		t.Fatalf("result = %+v", r[0])
 	}
 }

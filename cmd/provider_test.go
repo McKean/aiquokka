@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/McKean/aiquokka/internal/usage"
@@ -35,8 +36,11 @@ func TestExitCode(t *testing.T) {
 func TestNoRefreshFlagReachesProviders(t *testing.T) {
 	t.Cleanup(func() { noRefresh = false })
 	allowed := func() []bool {
+		var mu sync.Mutex // the providers run at once
 		var seen []bool
 		p := provider{name: "Stub", fetch: func(ctx context.Context) (*usage.Report, error) {
+			mu.Lock()
+			defer mu.Unlock()
 			seen = append(seen, usage.RefreshAllowed(ctx))
 			return &usage.Report{Provider: "Stub"}, nil
 		}}

@@ -74,11 +74,20 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 		return nil, err
 	}
 
+	// Bundles and cash do not depend on each other: ask for both at once, so a
+	// run waits for one round trip instead of two.
+	var cash *accountData
+	var cashErr error // non-fatal: bundles alone are useful
+	cashDone := make(chan struct{})
+	go func() {
+		defer close(cashDone)
+		cash, cashErr = getCash(ctx, jwt)
+	}()
 	bundles, err := getBundles(ctx, jwt)
+	<-cashDone
 	if err != nil {
 		return nil, err
 	}
-	cash, cashErr := getCash(ctx, jwt) // non-fatal: bundles alone are useful
 	if cashErr != nil {
 		cash = nil
 	}

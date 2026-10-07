@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/McKean/aiquokka/internal/httpx"
@@ -56,9 +57,21 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 
 	report := &usage.Report{Provider: "Grok", Account: usage.NewAccount(acc.UserID, acc.Email)}
 
+	// The tier and the usage window do not depend on each other: ask for both
+	// at once, so a run waits for one round trip instead of two.
+	var u *userResponse
+	var userErr error
+	userDone := make(chan struct{})
+	go func() {
+		defer close(userDone)
+		u, userErr = getUser(ctx, acc, storeKey)
+	}()
+	bill, err := getBilling(ctx, acc, storeKey)
+	<-userDone
+
 	// Subscription tier + Grok Code access (best-effort; don't fail the whole
 	// report if this call errors).
-	if u, err := getUser(ctx, acc, storeKey); err == nil {
+	if userErr == nil {
 		report.Plan = u.SubscriptionTier
 		access := "no"
 		if u.HasGrokCodeAccess {
@@ -68,7 +81,6 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 	}
 
 	// The usage-limit window.
-	bill, err := getBilling(ctx, acc, storeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -152,19 +164,42 @@ func getUser(ctx context.Context, acc *account, storeKey string) (*userResponse,
 	return &out, nil
 }
 
+// accMu guards the account's token fields: Fetch's two calls share one account
+// and either may refresh it.
+var accMu sync.Mutex
+
 // authedGet performs a bearer GET, refreshing the token and retrying once on a
 // 401/403.
 func authedGet(ctx context.Context, acc *account, storeKey, path string, out any) error {
-	status, err := doGet(ctx, acc.Key, path, out)
+	accMu.Lock()
+	key := acc.Key
+	accMu.Unlock()
+
+	status, err := doGet(ctx, key, path, out)
 	if err == nil {
 		return nil
 	}
-	if (status == http.StatusUnauthorized || status == http.StatusForbidden) && acc.RefreshToken != "" {
+	if status != http.StatusUnauthorized && status != http.StatusForbidden {
+		return err
+	}
+
+	accMu.Lock()
+	if acc.RefreshToken == "" {
+		accMu.Unlock()
+		return err
+	}
+	// A refresh token is good for one exchange: when the other call was
+	// rejected too and has refreshed already, retry with its token.
+	if acc.Key == key {
 		if rerr := refresh(ctx, acc, storeKey); rerr != nil {
+			accMu.Unlock()
 			return rerr
 		}
-		_, err = doGet(ctx, acc.Key, path, out)
 	}
+	key = acc.Key
+	accMu.Unlock()
+
+	_, err = doGet(ctx, key, path, out)
 	return err
 }
 

@@ -8,10 +8,10 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
+	"github.com/McKean/aiquokka/internal/httpx"
 	"github.com/McKean/aiquokka/internal/usage"
 	"gopkg.in/yaml.v3"
 )
@@ -155,7 +155,8 @@ type fetchResult struct {
 
 // runAll fetches every provider concurrently. On a TTY it shows a fixed-order
 // skeleton for configured providers and rewrites the view as each result
-// arrives. Non-TTY and --json/--yaml wait for every fetch, then emit once.
+// arrives. Non-TTY and --json/--yaml wait for the fetches, then emit once: a
+// provider that has not answered by httpx's timeout is reported as failed.
 // With --watch, the whole view refreshes every watchInterval until interrupted.
 func runAll(providers []provider) error {
 	return maybeWatch(func(parent context.Context) error {
@@ -173,7 +174,7 @@ func runAll(providers []provider) error {
 }
 
 func runAllStructured(ctx context.Context, providers []provider) error {
-	results := fetchAll(ctx, providers)
+	results := fetchAnswered(ctx, providers)
 	out := map[string]any{}
 	for _, r := range results {
 		switch {
@@ -188,10 +189,10 @@ func runAllStructured(ctx context.Context, providers []provider) error {
 	return emit(out)
 }
 
-// runAllBatch waits for every provider, then prints in fixed provider order.
+// runAllBatch waits for the providers, then prints in fixed provider order.
 // Used when stdout is not a TTY (pipes, redirects).
 func runAllBatch(ctx context.Context, providers []provider) error {
-	results := fetchAll(ctx, providers)
+	results := fetchAnswered(ctx, providers)
 	now := time.Now()
 
 	var reports []*usage.Report
@@ -373,17 +374,53 @@ func writeProviderError(w io.Writer, name string, err error) {
 // fetchAll runs every provider concurrently and returns results in the same
 // order as providers.
 func fetchAll(ctx context.Context, providers []provider) []fetchResult {
+	return fetchWithin(ctx, providers, 0)
+}
+
+// fetchAnswered is fetchAll for output that is printed once: it returns when
+// every provider has answered or httpx's timeout has passed, whichever is
+// first, so that one provider that does not answer cannot hold the others.
+// A single request already fails at that timeout; what runs past it is a
+// provider that makes several in series, or waits on something else (its own
+// CLI, the Keychain).
+func fetchAnswered(ctx context.Context, providers []provider) []fetchResult {
+	return fetchWithin(ctx, providers, httpx.Client.Timeout)
+}
+
+// fetchWithin runs every provider concurrently and returns results in the same
+// order as providers. A provider that has not answered within deadline is
+// reported as failed; zero waits for all of them.
+func fetchWithin(ctx context.Context, providers []provider, deadline time.Duration) []fetchResult {
+	var late <-chan time.Time
+	if deadline > 0 {
+		timer := time.NewTimer(deadline)
+		defer timer.Stop()
+		late = timer.C
+	}
+
 	results := make([]fetchResult, len(providers))
-	var wg sync.WaitGroup
+	type answer struct {
+		i      int
+		report *usage.Report
+		err    error
+	}
+	// Buffered, so a provider that answers after the deadline does not block.
+	ch := make(chan answer, len(providers))
 	for i, p := range providers {
-		wg.Add(1)
+		results[i] = fetchResult{name: p.name, err: fmt.Errorf("did not answer within %s", deadline)}
 		go func(i int, p provider) {
-			defer wg.Done()
 			r, err := p.fetch(ctx)
-			results[i] = fetchResult{name: p.name, report: r, err: err}
+			ch <- answer{i: i, report: r, err: err}
 		}(i, p)
 	}
-	wg.Wait()
+	for remaining := len(providers); remaining > 0; remaining-- {
+		select {
+		case a := <-ch:
+			results[a.i] = fetchResult{name: providers[a.i].name, report: a.report, err: a.err}
+		case <-late:
+			return results
+		}
+	}
 	return results
 }
 
