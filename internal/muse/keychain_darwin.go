@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -14,26 +13,27 @@ import (
 )
 
 // The Muse CLI stores its device-code login in the Keychain under this
-// service/account when it is not inline in auth.json.
-const (
-	keychainService = "ai.meta.dev.credentials"
-	keychainAccount = "meta"
-)
+// service/account when it is not inline in auth.json. The service names the
+// item in user-facing messages and lives in keychain.go; only the account is
+// darwin-local.
+const keychainAccount = "meta"
 
 // securityTimeout bounds the /usr/bin/security call so a Keychain permission
 // dialog (unconfirmable over SSH) cannot hang the fetch.
 const securityTimeout = 3 * time.Second
 
-// errKeychainNotFound marks every "no usable Keychain login" outcome: a
-// missing item, an unreadable one, or a payload without an access token. The
-// caller then reports NotConfigured instead of failing.
+// errKeychainNotFound marks a Keychain item that is not there, or a payload
+// without an access token. An item that may be there but could not be read
+// (a permission dialog, a locked Keychain) is a *keychainUnreadableError,
+// which unwraps to this so "is there a login?" callers keep seeing absence.
 var errKeychainNotFound = errors.New("no Muse login in Keychain")
 
 func isKeychainNotFound(err error) bool { return errors.Is(err, errKeychainNotFound) }
 
 // loadKeychainToken reads the CLI's Keychain item and returns its OAuth access
-// token. It never prompts: a locked Keychain or a permission dialog reads as
-// "not found" so the fetch stays non-interactive.
+// token. It never prompts: the read is bounded, and a failure classifies as
+// missing or unreadable (see classifyKeychainFailure) so the fetch stays
+// non-interactive.
 func loadKeychainToken(ctx context.Context) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -46,22 +46,13 @@ func loadKeychainToken(ctx context.Context) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", fmt.Errorf("%w: timed out (a permission dialog may be waiting on the Mac desktop)", errKeychainNotFound)
+		timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
+		var exitErr *exec.ExitError
+		code, hasCode := 0, false
+		if errors.As(err, &exitErr) {
+			code, hasCode = exitErr.ExitCode(), true
 		}
-		msg := strings.TrimSpace(stderr.String())
-		if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() == 44 || strings.Contains(msg, "could not be found") {
-			return "", errKeychainNotFound
-		}
-		if strings.Contains(msg, "User interaction is not allowed") ||
-			strings.Contains(msg, "because it is locked") ||
-			strings.Contains(msg, "Unable to display a dialogue") {
-			return "", fmt.Errorf("%w: Keychain is locked or needs approval — run `security unlock-keychain`, then retry", errKeychainNotFound)
-		}
-		if msg == "" {
-			return "", fmt.Errorf("%w: %v", errKeychainNotFound, err)
-		}
-		return "", fmt.Errorf("%w: %s", errKeychainNotFound, msg)
+		return "", classifyKeychainFailure(timedOut, code, hasCode, strings.TrimSpace(stderr.String()), err)
 	}
 	return keychainAccessToken(bytes.TrimSpace(stdout.Bytes()))
 }

@@ -217,6 +217,94 @@ func TestKeychainAccessToken(t *testing.T) {
 	}
 }
 
+func stubKeychainLoader(t *testing.T, fn func(context.Context) (string, error)) {
+	t.Helper()
+	old := keychainLoader
+	keychainLoader = fn
+	t.Cleanup(func() { keychainLoader = old })
+}
+
+func TestClassifyKeychainFailure(t *testing.T) {
+	runErr := errKeychainNotFound
+	cases := []struct {
+		name       string
+		timedOut   bool
+		code       int
+		hasCode    bool
+		stderr     string
+		unreadable bool
+	}{
+		{"timeout beats everything", true, 44, true, "could not be found", true},
+		{"exit 44 is missing", false, 44, true, "", false},
+		{"not found text is missing", false, 1, true, "The specified item could not be found in the keychain.", false},
+		{"locked keychain", false, 1, true, "The user name or passphrase you entered is not correct because it is locked.", true},
+		{"no user interaction", false, 1, true, "User interaction is not allowed.", true},
+		{"no dialogue", false, 1, true, "Unable to display a dialogue.", true},
+		{"other security error", false, 1, true, "security: some new failure", true},
+		{"empty failure", false, 1, true, "", true},
+	}
+	for _, tc := range cases {
+		err := classifyKeychainFailure(tc.timedOut, tc.code, tc.hasCode, tc.stderr, runErr)
+		if !isKeychainNotFound(err) {
+			t.Errorf("%s: err = %v, want keychain-not-found underneath", tc.name, err)
+		}
+		if _, ok := asKeychainUnreadable(err); ok != tc.unreadable {
+			t.Errorf("%s: unreadable = %v, want %v (err = %v)", tc.name, ok, tc.unreadable, err)
+		}
+	}
+}
+
+func TestLoadTokenKeychainTimeout(t *testing.T) {
+	writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth"}}}`)
+	stubKeychainLoader(t, func(context.Context) (string, error) {
+		return "", classifyKeychainFailure(true, 0, false, "", context.DeadlineExceeded)
+	})
+	_, err := loadToken(context.Background())
+	if !usage.IsNotConfigured(err) {
+		t.Fatalf("err = %v, want NotConfigured", err)
+	}
+	msg := err.Error()
+	for _, want := range []string{"ai.meta.dev.credentials", "could not be read", "Always Allow", "security unlock-keychain"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("err = %q, want it to mention %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, "run `muse login`") {
+		t.Errorf("err = %q, must not send the user back to `muse login`", msg)
+	}
+	if strings.Contains(msg, "\n") {
+		t.Errorf("err = %q, want one line", msg)
+	}
+}
+
+func TestLoadTokenKeychainMissing(t *testing.T) {
+	path := writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth"}}}`)
+	stubKeychainLoader(t, func(context.Context) (string, error) {
+		return "", classifyKeychainFailure(false, 44, true, "could not be found", errKeychainNotFound)
+	})
+	_, err := loadToken(context.Background())
+	if !usage.IsNotConfigured(err) {
+		t.Fatalf("err = %v, want NotConfigured", err)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "run `muse login`") || !strings.Contains(msg, path) {
+		t.Errorf("err = %q, want today's login hint with the auth path", msg)
+	}
+}
+
+func TestLoadTokenKeychainLocked(t *testing.T) {
+	writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth"}}}`)
+	stubKeychainLoader(t, func(context.Context) (string, error) {
+		return "", classifyKeychainFailure(false, 1, true, "User interaction is not allowed.", errKeychainNotFound)
+	})
+	_, err := loadToken(context.Background())
+	if !usage.IsNotConfigured(err) {
+		t.Fatalf("err = %v, want NotConfigured", err)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "security unlock-keychain") {
+		t.Errorf("err = %q, want the unlock hint", msg)
+	}
+}
+
 // mintServer serves one canned mint response, recording the request it saw.
 type mintServer struct {
 	t        *testing.T

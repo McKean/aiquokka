@@ -56,8 +56,10 @@ func loadToken(ctx context.Context) (string, error) {
 			return token, nil
 		}
 		if meta.Mechanism != "" {
-			if token, err := loadKeychainToken(ctx); err == nil {
+			if token, err := keychainLoader(ctx); err == nil {
 				return token, nil
+			} else if unread, ok := asKeychainUnreadable(err); ok {
+				return "", usage.NotConfigured("Muse Keychain item %s could not be read (%s) — answer the permission dialog on the Mac desktop with \"Always Allow\", or run `security unlock-keychain` if the Keychain is locked", keychainService, unread.reason)
 			} else if !isKeychainNotFound(err) {
 				return "", err
 			}
@@ -68,7 +70,10 @@ func loadToken(ctx context.Context) (string, error) {
 	}
 
 	// No metadata file at all: macOS may still hold a Keychain-only login.
-	if token, err := loadKeychainToken(ctx); err == nil {
+	// An unreadable item unwraps to errKeychainNotFound, so it falls through
+	// to the generic report below: with no auth.json naming a login there is
+	// nothing to attribute it to.
+	if token, err := keychainLoader(ctx); err == nil {
 		return token, nil
 	} else if !isKeychainNotFound(err) {
 		return "", err
