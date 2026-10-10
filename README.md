@@ -1,7 +1,7 @@
 # aiquokka
 
 One command to see the usage limits of all your AI coding subscriptions —
-Claude, Codex, Kimi, Copilot, Grok, DeepSeek, Kiro, Antigravity, and Z.ai — reading the credentials each official CLI
+Claude, Codex, Kimi, Copilot, Grok, DeepSeek, Kiro, Antigravity, Z.ai, and Muse — reading the credentials each official CLI
 already stores (or your existing API key). No tokens to paste, no config.
 
 ![aiquokka demo](docs/demo.gif)
@@ -45,6 +45,7 @@ aiquokka deepseek  # account balance (remaining money)
 aiquokka kiro      # Kiro CLI monthly credits and overage status
 aiquokka agy       # daily antigravity limits
 aiquokka zai       # Z.ai usage bundles and cash balance
+aiquokka muse      # Muse 5-hour and weekly limits
 
 aiquokka tray      # menu bar (macOS) / system tray (Linux) app
 
@@ -182,6 +183,7 @@ Per window:
 | `kiro` | `credits` |
 | `agy` | `<group>/<bucket>` from agy's names, e.g. `gemini-3-pro/weekly` |
 | `zai` | `bundle/<model>`, e.g. `bundle/glm-5.3`, and `cash` |
+| `muse` | `5h` (rolling session window) and `weekly` |
 
 `account` says whose login the answer is for: `id` is the provider's own
 identifier and `email` the address, each present only if the stored login holds
@@ -195,6 +197,7 @@ it. No token or key is ever printed.
 | `copilot` | `id` (the GitHub login) |
 | `kimi`, `deepseek`, `zai` | left out: the stored token or API key names no account |
 | `kiro`, `agy` | left out: the login stays with that CLI, aiquokka never reads it |
+| `muse` | left out: identity fields in the quota response are discarded |
 
 #### Asking without touching a login
 
@@ -219,7 +222,8 @@ $ aiquokka --json --no-refresh
 ```
 
 `kiro` and `agy` are answered by their own CLIs, which renew their own logins
-as they see fit; `--no-refresh` does not reach into them.
+as they see fit; `--no-refresh` does not reach into them. `muse` only reads
+its login and has no refresh step, so `--no-refresh` is a no-op for it.
 
 #### Exit codes
 
@@ -262,9 +266,11 @@ machine and queries the same usage endpoint that CLI uses.
 | `kiro`   | Kiro CLI credential store (via `kiro-cli /usage`) | `q.<region>.amazonaws.com/getUsageLimits` |
 | `agy`    | Antigravity CLI's own login | `agy -p /usage --output-format json` (no session needed, spends no quota) |
 | `zai`    | `$ZAI_API_KEY`, or the zai provider in `~/.pi/agent/models.json` | `api.z.ai/api/biz/tokenAccounts/list/my`, `api.z.ai/api/biz/account/query-customer-account-report` |
+| `muse`   | `~/.config/muse/auth.json` device login (or `$MUSE_AUTH_PATH`), macOS Keychain fallback | `api.meta.ai/muse-code/key` (the CLI's own key-mint call) |
 
 Every provider that uses a short-lived OAuth access token (all except the
-static API-key providers Kimi and DeepSeek) **refreshes automatically** when
+static API-key providers Kimi and DeepSeek, plus Muse, whose device login
+offers no refresh) **refreshes automatically** when
 the token has expired and writes the new token back to the credential file.
 Pass `--no-refresh` to forbid both (see
 [Asking without touching a login](#asking-without-touching-a-login)).
@@ -298,6 +304,7 @@ Per-provider notes:
 - **Kiro** runs the installed CLI’s built-in `/usage` command non-interactively, so Kiro retains ownership of credentials and token refresh. It reports monthly credits, plan, reset date, and overage status.
 - **Antigravity** runs `agy -p "/usage" --output-format json`, which agy 1.2.x answers non-interactively without opening a session or spending quota. agy stays responsible for its credentials and token refresh.
 - **Z.ai** reports the prepaid usage bundles (resource packages) as used/total token bars plus the pay-as-you-go cash balance. Bundles are model-specific — a bundle for `glm-5.3` stays untouched while requests to `glm-5.3-flash` burn cash — so check the "Applies to" fact if your cash drains faster than expected. The key is the Zhipu `{id}.{secret}` form; it is turned into a signed JWT locally. On the China platform, set `ZAI_BASE_URL=https://open.bigmodel.cn/api` (balance is then shown as CNY).
+- **Muse** reports the subscription's rolling 5-hour and weekly windows from the CLI's own key-mint call, using the `muse login` device session in `~/.config/muse/auth.json` (override with `MUSE_AUTH_PATH`; on macOS the token may come from the CLI's Keychain item instead). `META_API_KEY` and dashboard keys cannot read quota, so they are not used. Meta omits the usage block while the 5-hour window is idle, which shows as "idle" rather than 0%; an inactive subscription or a missing payment method is reported as such. The endpoint is rate-limited, so one read is reused for five minutes. The minted key and every identity field are discarded, and the login is never written.
 
 ## Caveats
 

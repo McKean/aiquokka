@@ -25,6 +25,7 @@ var providerURLs = map[string]string{
 	"DeepSeek": "https://platform.deepseek.com/usage",
 	"Kimi":     "https://www.kimi.com/code/console",
 	"Kiro":     "https://app.kiro.dev",
+	"Muse":     "https://dev.meta.ai/usage",
 	"Z.ai":     "https://z.ai/subscribe",
 }
 
