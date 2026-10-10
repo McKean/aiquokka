@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -177,7 +178,7 @@ func writeAuth(t *testing.T, content string) string {
 
 func TestLoadTokenInline(t *testing.T) {
 	writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth","access_token":"dca:test-token"}}}`)
-	got, err := loadToken(context.Background())
+	got, err := loadToken()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,139 +187,37 @@ func TestLoadTokenInline(t *testing.T) {
 	}
 }
 
-func TestLoadTokenMissing(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "auth.json")
-	t.Setenv("MUSE_AUTH_PATH", path)
-	if _, err := loadToken(context.Background()); !usage.IsNotConfigured(err) {
-		t.Fatalf("err = %v, want NotConfigured", err)
+// A login the file cannot hand over is no error: Fetch asks the CLI then.
+func TestLoadTokenLeavesLoginToCLI(t *testing.T) {
+	t.Setenv("MUSE_AUTH_PATH", filepath.Join(t.TempDir(), "auth.json"))
+	if got, err := loadToken(); got != "" || err != nil {
+		t.Fatalf("no auth.json: got %q, %v; want no token and no error", got, err)
+	}
+	writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth"}}}`)
+	if got, err := loadToken(); got != "" || err != nil {
+		t.Fatalf("login without token: got %q, %v; want no token and no error", got, err)
 	}
 }
 
 func TestLoadTokenNoMetaLogin(t *testing.T) {
-	writeAuth(t, `{"providers":{"meta":{"mechanism":"api_key"}}}`)
-	if _, err := loadToken(context.Background()); !usage.IsNotConfigured(err) {
-		t.Fatalf("err = %v, want NotConfigured", err)
-	}
-}
-
-func TestKeychainAccessToken(t *testing.T) {
-	got, err := keychainAccessToken([]byte(`{"access_token":"dca:from-keychain"}`))
-	if err != nil || got != "dca:from-keychain" {
-		t.Fatalf("got %q, %v; want the JSON token", got, err)
-	}
-	got, err = keychainAccessToken([]byte("dca:bare-token"))
-	if err != nil || got != "dca:bare-token" {
-		t.Fatalf("got %q, %v; want the bare token", got, err)
-	}
-	for _, payload := range []string{"", "{}", `{"access_token":""}`} {
-		if _, err := keychainAccessToken([]byte(payload)); !isKeychainNotFound(err) {
-			t.Fatalf("payload %q: err = %v, want keychain-not-found", payload, err)
-		}
-	}
-}
-
-func stubKeychainLoader(t *testing.T, fn func(context.Context) (string, error)) {
-	t.Helper()
-	old := keychainLoader
-	keychainLoader = fn
-	t.Cleanup(func() { keychainLoader = old })
-}
-
-func TestClassifyKeychainFailure(t *testing.T) {
-	runErr := errKeychainNotFound
-	cases := []struct {
-		name       string
-		timedOut   bool
-		code       int
-		hasCode    bool
-		stderr     string
-		unreadable bool
-	}{
-		{"timeout beats everything", true, 44, true, "could not be found", true},
-		{"exit 44 is missing", false, 44, true, "", false},
-		{"not found text is missing", false, 1, true, "The specified item could not be found in the keychain.", false},
-		{"locked keychain", false, 1, true, "The user name or passphrase you entered is not correct because it is locked.", true},
-		{"no user interaction", false, 1, true, "User interaction is not allowed.", true},
-		{"no dialogue", false, 1, true, "Unable to display a dialogue.", true},
-		{"other security error", false, 1, true, "security: some new failure", true},
-		{"multiline security error", false, 1, true, "security: denied\nrequest was not authorized", true},
-		{"empty failure", false, 1, true, "", true},
-	}
-	for _, tc := range cases {
-		err := classifyKeychainFailure(tc.timedOut, tc.code, tc.hasCode, tc.stderr, runErr)
-		if !isKeychainNotFound(err) {
-			t.Errorf("%s: err = %v, want keychain-not-found underneath", tc.name, err)
-		}
-		if _, ok := asKeychainUnreadable(err); ok != tc.unreadable {
-			t.Errorf("%s: unreadable = %v, want %v (err = %v)", tc.name, ok, tc.unreadable, err)
-		}
-		if tc.name == "multiline security error" {
-			if unread, _ := asKeychainUnreadable(err); strings.Contains(unread.reason, "\n") {
-				t.Errorf("reason = %q, want one line", unread.reason)
-			}
-		}
-	}
-}
-
-func TestLoadTokenKeychainTimeout(t *testing.T) {
-	writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth"}}}`)
-	stubKeychainLoader(t, func(context.Context) (string, error) {
-		return "", classifyKeychainFailure(true, 0, false, "", context.DeadlineExceeded)
-	})
-	_, err := loadToken(context.Background())
-	if !usage.IsNotConfigured(err) {
-		t.Fatalf("err = %v, want NotConfigured", err)
-	}
-	msg := err.Error()
-	// Both commands are spelled out: the dialog aiquokka's own bounded read
-	// raised cannot grant access, so the message must name ones that can.
-	for _, want := range []string{
-		"ai.meta.dev.credentials", "could not be read", "dismiss it",
-		"`security find-generic-password -s ai.meta.dev.credentials -a meta -w >/dev/null`",
-		"Always Allow",
-		"`security set-generic-password-partition-list -S apple-tool:,apple:,teamid:V9WTTPBFK9 -s ai.meta.dev.credentials -a meta`",
-		"security unlock-keychain",
-	} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("err = %q, want it to mention %q", msg, want)
-		}
-	}
-	if strings.Contains(msg, "answer the permission dialog") {
-		t.Errorf("err = %q, must not send the user to the dialog aiquokka raised", msg)
-	}
-	if strings.Contains(msg, "run `muse login`") {
-		t.Errorf("err = %q, must not send the user back to `muse login`", msg)
-	}
-	if strings.Contains(msg, "\n") {
-		t.Errorf("err = %q, want one line", msg)
-	}
-}
-
-func TestLoadTokenKeychainMissing(t *testing.T) {
-	path := writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth"}}}`)
-	stubKeychainLoader(t, func(context.Context) (string, error) {
-		return "", classifyKeychainFailure(false, 44, true, "could not be found", errKeychainNotFound)
-	})
-	_, err := loadToken(context.Background())
+	path := writeAuth(t, `{"providers":{"other":{"mechanism":"api_key"}}}`)
+	_, err := loadToken()
 	if !usage.IsNotConfigured(err) {
 		t.Fatalf("err = %v, want NotConfigured", err)
 	}
 	if msg := err.Error(); !strings.Contains(msg, "run `muse login`") || !strings.Contains(msg, path) {
-		t.Errorf("err = %q, want today's login hint with the auth path", msg)
+		t.Errorf("err = %q, want the login hint with the auth path", msg)
 	}
 }
 
-func TestLoadTokenKeychainLocked(t *testing.T) {
-	writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth"}}}`)
-	stubKeychainLoader(t, func(context.Context) (string, error) {
-		return "", classifyKeychainFailure(false, 1, true, "User interaction is not allowed.", errKeychainNotFound)
-	})
-	_, err := loadToken(context.Background())
-	if !usage.IsNotConfigured(err) {
-		t.Fatalf("err = %v, want NotConfigured", err)
+func TestLoadTokenCorruptAuth(t *testing.T) {
+	writeAuth(t, `{"providers":{"meta":{"access_token":"dca:secret-tok`)
+	_, err := loadToken()
+	if err == nil || usage.IsNotConfigured(err) {
+		t.Fatalf("err = %v, want a parse error", err)
 	}
-	if msg := err.Error(); !strings.Contains(msg, "security unlock-keychain") {
-		t.Errorf("err = %q, want the unlock hint", msg)
+	if strings.Contains(err.Error(), "secret") {
+		t.Fatalf("err = %q, must not print the file's contents", err)
 	}
 }
 
@@ -428,10 +327,25 @@ func TestFetchRejectedLogin(t *testing.T) {
 }
 
 func TestFetchNotConfigured(t *testing.T) {
-	t.Setenv("MUSE_AUTH_PATH", filepath.Join(t.TempDir(), "auth.json"))
-	resetMintCache()
-	t.Cleanup(resetMintCache)
+	writeAuth(t, `{"providers":{}}`)
+	stubServe(t, func(context.Context) (*serveConn, error) {
+		t.Error("the CLI was asked although auth.json names no login")
+		return nil, exec.ErrNotFound
+	})
 	if _, err := Fetch(context.Background()); !usage.IsNotConfigured(err) {
 		t.Fatalf("err = %v, want NotConfigured", err)
+	}
+}
+
+// An inline token keeps the HTTP path: the CLI is not started.
+func TestFetchInlineTokenDoesNotAskCLI(t *testing.T) {
+	writeAuth(t, `{"providers":{"meta":{"mechanism":"oauth","access_token":"dca:test-token"}}}`)
+	serveMint(t, http.StatusOK, mintPayload)
+	stubServe(t, func(context.Context) (*serveConn, error) {
+		t.Error("the CLI was asked although the token is inline")
+		return nil, exec.ErrNotFound
+	})
+	if _, err := Fetch(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }

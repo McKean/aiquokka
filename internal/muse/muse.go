@@ -50,12 +50,17 @@ type windowSnapshot struct {
 }
 
 // Fetch reports the Muse subscription quota: the rolling 5-hour window and
-// the weekly window from the CLI's key-mint call. The stored login is only
-// read, never written — there is no token refresh to forbid under --no-refresh.
+// the weekly window. With the device token inline in auth.json they come from
+// the CLI's key-mint call; without it (macOS, where the token is in the CLI's
+// Keychain item) from the CLI itself. The stored login is only read, never
+// written — there is no token refresh to forbid under --no-refresh.
 func Fetch(ctx context.Context) (*usage.Report, error) {
-	token, err := loadToken(ctx)
+	token, err := loadToken()
 	if err != nil {
 		return nil, err
+	}
+	if token == "" {
+		return fetchFromCLI(ctx)
 	}
 	resp, err := mint(ctx, token)
 	if err != nil {

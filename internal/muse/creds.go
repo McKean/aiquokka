@@ -1,9 +1,9 @@
-// Package muse reads the Muse CLI's stored device login and reports its
-// subscription quota from the CLI's own key-mint call.
+// Package muse reports the Muse subscription quota: from the CLI's own
+// key-mint call where its stored device login is readable, and from the CLI
+// itself where it is not.
 package muse
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -31,7 +31,7 @@ func authFile() string {
 
 // cliAuth mirrors the Muse CLI's auth.json. providers.meta holds the account
 // login: mechanism "oauth" with the device-code access token inline on Linux,
-// while on macOS the token may live in the Keychain instead.
+// while on macOS the CLI keeps the token in its own Keychain item.
 type cliAuth struct {
 	Providers map[string]struct {
 		Mechanism   string `json:"mechanism"`
@@ -39,52 +39,35 @@ type cliAuth struct {
 	} `json:"providers"`
 }
 
-// loadToken returns the device-code OAuth access token for the meta provider.
-// An inline providers.meta.access_token wins; on macOS a login without one
-// falls back to the CLI's Keychain item. Inference keys (LLM|…) and dashboard
-// keys (LLM_…) cannot read quota — only the device login can — so META_API_KEY
-// is deliberately not a credential source here.
-func loadToken(ctx context.Context) (string, error) {
+// loadToken returns the device-code OAuth access token for the meta provider
+// when auth.json holds it inline. An empty token with no error means the
+// login, if there is one, is not readable from the file: auth.json names a
+// login without a token, or there is no auth.json. The caller then asks the
+// CLI itself (see fetchFromCLI); aiquokka never reads the CLI's Keychain
+// item. Inference keys (LLM|…) and dashboard keys (LLM_…) cannot read quota —
+// only the device login can — so META_API_KEY is deliberately not a
+// credential source here.
+func loadToken() (string, error) {
 	path := authFile()
-	if data, err := os.ReadFile(path); err == nil {
-		var auth cliAuth
-		if err := json.Unmarshal(data, &auth); err != nil {
-			return "", &jsonError{path: path, err: err}
-		}
-		meta := auth.Providers["meta"]
-		if token := strings.TrimSpace(meta.AccessToken); token != "" {
-			return token, nil
-		}
-		if meta.Mechanism != "" {
-			if token, err := keychainLoader(ctx); err == nil {
-				return token, nil
-			} else if unread, ok := asKeychainUnreadable(err); ok {
-				// One line, like every provider error. The dialog the bounded
-				// read raised is not among the steps: see securityTimeout.
-				return "", usage.NotConfigured("Muse Keychain item %s could not be read (%s) — a permission dialog aiquokka raised is dead, dismiss it: aiquokka stopped waiting, so answering it grants nothing. In a terminal at the Mac's screen run `%s` and answer its dialog with \"Always Allow\"; if it still asks afterwards, run `%s`. If the Keychain is locked, run `security unlock-keychain` first",
-					keychainService, unread.reason, keychainReadCommand, keychainPartitionCommand)
-			} else if !isKeychainNotFound(err) {
-				return "", err
-			}
-		}
-		return "", usage.NotConfigured("no Muse login in %s — run `muse login`", path)
-	} else if !os.IsNotExist(err) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
 		return "", err
 	}
-
-	// No metadata file at all: macOS may still hold a Keychain-only login.
-	// An unreadable item unwraps to errKeychainNotFound, so it falls through
-	// to the generic report below: with no auth.json naming a login there is
-	// nothing to attribute it to.
-	if token, err := keychainLoader(ctx); err == nil {
+	var auth cliAuth
+	if err := json.Unmarshal(data, &auth); err != nil {
+		return "", &jsonError{path: path, err: err}
+	}
+	meta := auth.Providers["meta"]
+	if token := strings.TrimSpace(meta.AccessToken); token != "" {
 		return token, nil
-	} else if !isKeychainNotFound(err) {
-		return "", err
 	}
-	if path == "" {
-		return "", usage.NotConfigured("no Muse login found — run `muse login`")
+	if meta.Mechanism == "" {
+		return "", usage.NotConfigured("no Muse login in %s — run `muse login`", path)
 	}
-	return "", usage.NotConfigured("no Muse login at %s — run `muse login`", path)
+	return "", nil
 }
 
 // jsonError reports a corrupt auth.json without printing its contents: the
@@ -96,21 +79,3 @@ type jsonError struct {
 
 func (e *jsonError) Error() string { return "parsing " + e.path + ": invalid JSON" }
 func (e *jsonError) Unwrap() error { return e.err }
-
-// keychainAccessToken extracts the OAuth token from the CLI's Keychain item
-// payload, which it stores as JSON. A bare token is accepted too.
-func keychainAccessToken(payload []byte) (string, error) {
-	if len(payload) == 0 {
-		return "", errKeychainNotFound
-	}
-	var v struct {
-		AccessToken string `json:"access_token"`
-	}
-	if json.Unmarshal(payload, &v) == nil && strings.TrimSpace(v.AccessToken) != "" {
-		return strings.TrimSpace(v.AccessToken), nil
-	}
-	if trimmed := strings.TrimSpace(string(payload)); trimmed != "" && !strings.ContainsAny(trimmed, " \t\r\n{") {
-		return trimmed, nil
-	}
-	return "", errKeychainNotFound
-}
