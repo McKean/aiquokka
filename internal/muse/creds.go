@@ -59,7 +59,10 @@ func loadToken(ctx context.Context) (string, error) {
 			if token, err := keychainLoader(ctx); err == nil {
 				return token, nil
 			} else if unread, ok := asKeychainUnreadable(err); ok {
-				return "", usage.NotConfigured("Muse Keychain item %s could not be read (%s) — answer the permission dialog on the Mac desktop with \"Always Allow\", or run `security unlock-keychain` if the Keychain is locked", keychainService, unread.reason)
+				// One line, like every provider error. The dialog the bounded
+				// read raised is not among the steps: see securityTimeout.
+				return "", usage.NotConfigured("Muse Keychain item %s could not be read (%s) — a permission dialog aiquokka raised is dead, dismiss it: aiquokka stopped waiting, so answering it grants nothing. In a terminal at the Mac's screen run `%s` and answer its dialog with \"Always Allow\"; if it still asks afterwards, run `%s`. If the Keychain is locked, run `security unlock-keychain` first",
+					keychainService, unread.reason, keychainReadCommand, keychainPartitionCommand)
 			} else if !isKeychainNotFound(err) {
 				return "", err
 			}

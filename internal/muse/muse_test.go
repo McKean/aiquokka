@@ -270,10 +270,21 @@ func TestLoadTokenKeychainTimeout(t *testing.T) {
 		t.Fatalf("err = %v, want NotConfigured", err)
 	}
 	msg := err.Error()
-	for _, want := range []string{"ai.meta.dev.credentials", "could not be read", "Always Allow", "security unlock-keychain"} {
+	// Both commands are spelled out: the dialog aiquokka's own bounded read
+	// raised cannot grant access, so the message must name ones that can.
+	for _, want := range []string{
+		"ai.meta.dev.credentials", "could not be read", "dismiss it",
+		"`security find-generic-password -s ai.meta.dev.credentials -a meta -w >/dev/null`",
+		"Always Allow",
+		"`security set-generic-password-partition-list -S apple-tool:,apple:,teamid:V9WTTPBFK9 -s ai.meta.dev.credentials -a meta`",
+		"security unlock-keychain",
+	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("err = %q, want it to mention %q", msg, want)
 		}
+	}
+	if strings.Contains(msg, "answer the permission dialog") {
+		t.Errorf("err = %q, must not send the user to the dialog aiquokka raised", msg)
 	}
 	if strings.Contains(msg, "run `muse login`") {
 		t.Errorf("err = %q, must not send the user back to `muse login`", msg)

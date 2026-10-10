@@ -12,14 +12,12 @@ import (
 	"time"
 )
 
-// The Muse CLI stores its device-code login in the Keychain under this
-// service/account when it is not inline in auth.json. The service names the
-// item in user-facing messages and lives in keychain.go; only the account is
-// darwin-local.
-const keychainAccount = "meta"
-
 // securityTimeout bounds the /usr/bin/security call so a Keychain permission
-// dialog (unconfirmable over SSH) cannot hang the fetch.
+// dialog cannot hang the fetch: over SSH nobody can answer one. The bound has
+// a cost at the Mac's screen too. The dialog outlives the killed read, and an
+// answer given to it grants nothing, since the process that asked is gone. So
+// the unreadable-item message in creds.go names commands the user runs with
+// no time limit instead of pointing at that dialog.
 const securityTimeout = 3 * time.Second
 
 // errKeychainNotFound marks a Keychain item that is not there, or a payload

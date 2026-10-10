@@ -5,9 +5,27 @@ import (
 	"strings"
 )
 
-// keychainService is the Keychain item the Muse CLI writes its device-code
-// login to when the token is not inline in auth.json.
-const keychainService = "ai.meta.dev.credentials"
+// The Muse CLI writes its device-code login to this Keychain item, under this
+// service and account, when the token is not inline in auth.json.
+const (
+	keychainService = "ai.meta.dev.credentials"
+	keychainAccount = "meta"
+)
+
+// The commands the unreadable-item message hands the user. aiquokka's own
+// read is killed after securityTimeout, so a grant can only come from a read
+// the user runs with no time limit, answered with "Always Allow".
+//
+// The second is for an item that still asks afterwards. The CLI creates the
+// item with only its own team in the partition list, and `security` belongs
+// to the apple-tool: partition; the command adds that, keeping the CLI's team
+// so the CLI can still read its login.
+const (
+	museTeamPartition        = "teamid:V9WTTPBFK9"
+	keychainItemArgs         = "-s " + keychainService + " -a " + keychainAccount
+	keychainReadCommand      = "security find-generic-password " + keychainItemArgs + " -w >/dev/null"
+	keychainPartitionCommand = "security set-generic-password-partition-list -S apple-tool:,apple:," + museTeamPartition + " " + keychainItemArgs
+)
 
 // keychainLoader reads the CLI's Keychain item and returns its OAuth access
 // token. It is a variable so tests can stub the `security` call, the way
@@ -15,9 +33,8 @@ const keychainService = "ai.meta.dev.credentials"
 var keychainLoader = loadKeychainToken
 
 // keychainUnreadableError marks a Keychain item that may exist but could not
-// be read: a permission dialog waiting on the Mac desktop (the bounded
-// `security` read times out), a locked Keychain, or any other `security`
-// failure. It unwraps to errKeychainNotFound so callers that only ask "is
+// be read: a permission dialog nobody answered within the bounded `security`
+// read (it times out), a locked Keychain, or any other `security` failure. It unwraps to errKeychainNotFound so callers that only ask "is
 // there a login?" keep treating it as absent, while callers that know
 // auth.json names a login report the reason instead of "no Muse login".
 type keychainUnreadableError struct{ reason string }
@@ -42,7 +59,7 @@ func asKeychainUnreadable(err error) (*keychainUnreadableError, bool) {
 // to its outcome: errKeychainNotFound when the item is not there (exit 44,
 // "could not be found"), or a *keychainUnreadableError when it may be there
 // but `security` could not read it. timedOut reports the bounded read hit its
-// deadline, which is how an unconfirmable permission dialog shows up.
+// deadline, which is how a permission dialog shows up.
 func classifyKeychainFailure(timedOut bool, exitCode int, hasExitCode bool, stderr string, runErr error) error {
 	if timedOut {
 		return &keychainUnreadableError{reason: "the `security` read timed out"}
