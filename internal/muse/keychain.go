@@ -57,9 +57,15 @@ func classifyKeychainFailure(timedOut bool, exitCode int, hasExitCode bool, stde
 	}
 	if stderr == "" {
 		if runErr != nil {
-			return &keychainUnreadableError{reason: runErr.Error()}
+			return &keychainUnreadableError{reason: oneLineKeychainReason(runErr.Error())}
 		}
 		return &keychainUnreadableError{reason: "unknown error"}
 	}
-	return &keychainUnreadableError{reason: stderr}
+	return &keychainUnreadableError{reason: oneLineKeychainReason(stderr)}
+}
+
+// oneLineKeychainReason keeps diagnostics from security stderr and process
+// errors on the same line as the actionable NotConfigured message.
+func oneLineKeychainReason(reason string) string {
+	return strings.Join(strings.Fields(reason), " ")
 }

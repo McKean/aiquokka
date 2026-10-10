@@ -241,6 +241,7 @@ func TestClassifyKeychainFailure(t *testing.T) {
 		{"no user interaction", false, 1, true, "User interaction is not allowed.", true},
 		{"no dialogue", false, 1, true, "Unable to display a dialogue.", true},
 		{"other security error", false, 1, true, "security: some new failure", true},
+		{"multiline security error", false, 1, true, "security: denied\nrequest was not authorized", true},
 		{"empty failure", false, 1, true, "", true},
 	}
 	for _, tc := range cases {
@@ -250,6 +251,11 @@ func TestClassifyKeychainFailure(t *testing.T) {
 		}
 		if _, ok := asKeychainUnreadable(err); ok != tc.unreadable {
 			t.Errorf("%s: unreadable = %v, want %v (err = %v)", tc.name, ok, tc.unreadable, err)
+		}
+		if tc.name == "multiline security error" {
+			if unread, _ := asKeychainUnreadable(err); strings.Contains(unread.reason, "\n") {
+				t.Errorf("reason = %q, want one line", unread.reason)
+			}
 		}
 	}
 }
