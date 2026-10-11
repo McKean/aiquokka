@@ -191,7 +191,7 @@ it. No token or key is ever printed.
 
 | Provider | `account` |
 | --- | --- |
-| `claude` | `id`, `email` (from `~/.claude.json`, where Claude Code records the account at login) |
+| `claude` | `id`, `email` (from `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json` when set, where Claude Code records the account at login) |
 | `codex` | `id` (the ChatGPT account id), `email` (from the stored id token) |
 | `grok` | `id`, `email` |
 | `copilot` | `id` (the GitHub login) |
@@ -277,11 +277,12 @@ Pass `--no-refresh` to forbid both (see
 
 ### Claude Code on macOS
 
-Claude Code stores its OAuth credential in `~/.claude/.credentials.json` or,
-on macOS, the Keychain. Aiquokka prefers the credentials file when it contains
-an OAuth access token. Otherwise it reads the `Claude Code-credentials`
-item through the macOS `security` tool (the same helper Claude Code uses to
-write it), which avoids a Keychain permission dialog for the aiquokka binary.
+Claude Code stores its OAuth credential in `~/.claude/.credentials.json` (under
+`$CLAUDE_CONFIG_DIR` instead when that variable is set) or, on macOS, the
+Keychain. Aiquokka prefers the credentials file when it contains an OAuth
+access token. Otherwise it reads the `Claude Code-credentials` item through
+the macOS `security` tool (the same helper Claude Code uses to write it),
+which avoids a Keychain permission dialog for the aiquokka binary.
 Over SSH, unlock the login Keychain first with `security unlock-keychain`.
 If a permission dialog still cannot be confirmed remotely, aiquokka times
 out the Keychain read instead of hanging. When a refresh is required, it
