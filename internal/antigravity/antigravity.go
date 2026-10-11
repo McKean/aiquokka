@@ -61,6 +61,20 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 	return parseUsage(stdout.Bytes())
 }
 
+// bucketLabel names a bucket by its window length, like the other providers.
+// agy 1.3 words its bucket names as what is left ("Weekly Limit Remaining"),
+// which would read backwards next to the used percent, so a window of any
+// other length keeps agy's name without the trailing " Remaining".
+func bucketLabel(window, name string) string {
+	switch window {
+	case "weekly":
+		return "Weekly"
+	case "5h":
+		return "5h"
+	}
+	return strings.TrimSuffix(name, " Remaining")
+}
+
 func parseUsage(raw []byte) (*usage.Report, error) {
 	var out printOutput
 	if err := json.Unmarshal(raw, &out); err != nil {
@@ -74,7 +88,7 @@ func parseUsage(raw []byte) (*usage.Report, error) {
 			w := usage.Window{
 				// agy gives a bucket no identifier but its names.
 				ID:          usage.Slug(group.Name) + "/" + usage.Slug(b.Name),
-				Label:       fmt.Sprintf("%s - %s", group.Name, b.Name),
+				Label:       fmt.Sprintf("%s - %s", group.Name, bucketLabel(b.Window, b.Name)),
 				UsedPercent: &used,
 			}
 			if b.ResetTime != "" {
