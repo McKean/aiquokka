@@ -13,13 +13,38 @@ import (
 	"github.com/McKean/aiquokka/internal/usage"
 )
 
-// credentialsPath is ~/.claude/.credentials.json.
-func credentialsPath() (string, error) {
+// configDir is $CLAUDE_CONFIG_DIR when set, as Claude Code does, else ~/.claude.
+func configDir() (string, error) {
+	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
+		return v, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".claude", ".credentials.json"), nil
+	return filepath.Join(home, ".claude"), nil
+}
+
+// credentialsPath is .credentials.json in the Claude config dir.
+func credentialsPath() (string, error) {
+	dir, err := configDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, ".credentials.json"), nil
+}
+
+// accountPath is where Claude Code records the account: .claude.json inside
+// $CLAUDE_CONFIG_DIR when set, otherwise ~/.claude.json.
+func accountPath() (string, error) {
+	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v != "" {
+		return filepath.Join(v, ".claude.json"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude.json"), nil
 }
 
 // oauth mirrors the claudeAiOauth object in .credentials.json.
@@ -61,7 +86,7 @@ func (o oauth) expired(now time.Time) bool {
 	return now.UnixMilli() >= o.ExpiresAt
 }
 
-// loadCredentials prefers ~/.claude/.credentials.json when it contains an
+// loadCredentials prefers the credentials file in the Claude config dir when it contains an
 // OAuth access token and falls back to the macOS Keychain otherwise.
 func loadCredentials(ctx context.Context) (*oauth, error) {
 	path, err := credentialsPath()
@@ -163,15 +188,15 @@ func parseCredentials(data []byte) (*oauth, bool, error) {
 	return &o, true, nil
 }
 
-// loadAccount reads who is logged in from ~/.claude.json, where Claude Code
+// loadAccount reads who is logged in from the account file, where Claude Code
 // records the account at login (the credential itself, file or Keychain,
 // holds only tokens). It returns nil when the file or the entry is missing.
 func loadAccount() *usage.Account {
-	home, err := os.UserHomeDir()
+	path, err := accountPath()
 	if err != nil {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
