@@ -64,10 +64,12 @@ func renderWindow(win Window, now time.Time, maxLabel int) string {
 		pct := *win.UsedPercent
 		b.WriteString(bar(pct, pace, 24))
 		fmt.Fprintf(&b, " %5.1f%%", pct)
+		b.WriteString(TargetSuffix(win, pct, now))
 	} else if win.Used != nil && win.Limit != nil && *win.Limit > 0 {
 		pct := float64(*win.Used) / float64(*win.Limit) * 100
 		b.WriteString(bar(pct, pace, 24))
 		fmt.Fprintf(&b, " %5.1f%% (%d/%d)", pct, *win.Used, *win.Limit)
+		b.WriteString(TargetSuffix(win, pct, now))
 	} else if win.Remaining != nil {
 		b.WriteString(remainingBar(*win.Remaining, win.Currency, 24))
 	} else {
@@ -78,6 +80,22 @@ func renderWindow(win Window, now time.Time, maxLabel int) string {
 		fmt.Fprintf(&b, "   resets %s", HumanizeReset(win.ResetsAt, now))
 	}
 	return b.String()
+}
+
+// TargetSuffix says where use should be now, next to the used figure, e.g.
+// " used, target 17%". It is empty when the window's timing is unknown, so a
+// window without a duration prints as before. A window over its target is
+// marked. The CLI and the tray share it so the wording stays the same.
+func TargetSuffix(win Window, pct float64, now time.Time) string {
+	target, ok := win.TargetPercent(now)
+	if !ok {
+		return ""
+	}
+	s := fmt.Sprintf(" used, target %.0f%%", target)
+	if pct > target {
+		s += " (over target)"
+	}
+	return s
 }
 
 // bar renders a colored progress bar for pct in [0,100]. When pace is in [0,1]

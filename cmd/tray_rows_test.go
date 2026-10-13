@@ -85,7 +85,8 @@ func TestNewUsageRow(t *testing.T) {
 	win := pctWindow("Weekly", 88, now.Add(3*time.Hour))
 	win.Duration = 7 * 24 * time.Hour
 	r := newUsageRow(win, now, 80)
-	if r.value != "88%" || r.fill != 0.88 || !r.alert || r.pace < 0 || r.reset == "" {
+	// 165 of 168 hours have passed: target 98, under it.
+	if r.value != "88% used, target 98%" || r.fill != 0.88 || !r.alert || r.pace < 0 || r.reset == "" {
 		t.Errorf("unexpected row: %+v", r)
 	}
 	if contains(r.reset, "(") {
@@ -107,6 +108,29 @@ func TestNewUsageRow(t *testing.T) {
 	r = newUsageRow(usage.Window{Label: "Spend"}, now, 80)
 	if r.value != "—" || r.fill != -1 {
 		t.Errorf("unknown row: %+v", r)
+	}
+}
+
+func TestNewUsageRowTarget(t *testing.T) {
+	now := time.Now()
+	// Half the 5h window has passed: target 50.
+	win := pctWindow("5h", 70, now.Add(150*time.Minute))
+	win.Duration = 5 * time.Hour
+	if r := newUsageRow(win, now, 80); r.value != "70% used, target 50% (over target)" {
+		t.Errorf("over target missing or unmarked: %+v", r)
+	}
+
+	under := 20.0
+	win.UsedPercent = &under
+	r := newUsageRow(win, now, 80)
+	if r.value != "20% used, target 50%" {
+		t.Errorf("target missing: %+v", r)
+	}
+
+	// No duration: prints as before, no target.
+	plain := pctWindow("5h", 70, now.Add(time.Hour))
+	if r := newUsageRow(plain, now, 80); r.value != "70%" {
+		t.Errorf("window without duration must print as before: %+v", r)
 	}
 }
 

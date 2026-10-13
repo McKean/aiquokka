@@ -45,10 +45,12 @@ type Window struct {
 }
 
 // windowOut is a Window as structured output prints it: every field under its
-// own tag, plus the length in whole seconds, left out when it is unknown.
+// own tag, plus the length in whole seconds and the share of the window that
+// has passed, each left out when unknown.
 type windowOut struct {
 	plainWindow     `yaml:",inline"`
-	DurationSeconds int64 `json:"duration_seconds,omitempty" yaml:"duration_seconds,omitempty"`
+	DurationSeconds int64    `json:"duration_seconds,omitempty" yaml:"duration_seconds,omitempty"`
+	TargetPercent   *float64 `json:"target_percent,omitempty" yaml:"target_percent,omitempty"`
 }
 
 // plainWindow has Window's fields without its marshalers, so encoding a
@@ -56,7 +58,11 @@ type windowOut struct {
 type plainWindow Window
 
 func (w Window) out() windowOut {
-	return windowOut{plainWindow: plainWindow(w), DurationSeconds: int64(w.Duration / time.Second)}
+	out := windowOut{plainWindow: plainWindow(w), DurationSeconds: int64(w.Duration / time.Second)}
+	if target, ok := w.TargetPercent(time.Now()); ok {
+		out.TargetPercent = &target
+	}
+	return out
 }
 
 func (w Window) MarshalJSON() ([]byte, error) { return json.Marshal(w.out()) }
@@ -118,6 +124,18 @@ func (w Window) Pace(now time.Time) float64 {
 		return 1
 	}
 	return frac
+}
+
+// TargetPercent returns the share of the window that has passed at now, 0 to
+// 100: 100 * (duration - time until reset) / duration, clamped. It reports
+// false when either timing input is missing, so callers leave the key out
+// instead of guessing.
+func (w Window) TargetPercent(now time.Time) (float64, bool) {
+	pace := w.Pace(now)
+	if pace < 0 {
+		return 0, false
+	}
+	return pace * 100, true
 }
 
 // Report is a provider's full usage picture.
