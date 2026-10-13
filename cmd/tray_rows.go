@@ -90,7 +90,7 @@ func newUsageRow(w usage.Window, now time.Time, threshold int) usageRow {
 	switch {
 	case hasPct:
 		r.fill = math.Min(math.Max(pct, 0), 100) / 100
-		r.value = formatPct(pct) + usage.TargetSuffix(w, pct, now)
+		r.value = formatPct(pct)
 		r.alert = levelFor(pct, threshold) >= levelCritical
 		if w.UsedPercent == nil {
 			tips = append(tips, formatUsedLimit(*w.Used, *w.Limit))

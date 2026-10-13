@@ -17,7 +17,7 @@ func TestWindowJSONCarriesIDAndLength(t *testing.T) {
 		ID:          "session",
 		Label:       "5h",
 		UsedPercent: &used,
-		ResetsAt:    time.Date(2026, 10, 7, 19, 0, 0, 0, time.UTC),
+		ResetsAt:    time.Date(2000, 10, 7, 19, 0, 0, 0, time.UTC),
 		Duration:    5 * time.Hour,
 	}
 	data, err := json.Marshal(w)
@@ -25,7 +25,7 @@ func TestWindowJSONCarriesIDAndLength(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The reset is long past, so the whole window has elapsed: target 100.
-	want := `{"id":"session","label":"5h","used_percent":24,"resets_at":"2026-10-07T19:00:00Z","duration_seconds":18000,"target_percent":100}`
+	want := `{"id":"session","label":"5h","used_percent":24,"resets_at":"2000-10-07T19:00:00Z","duration_seconds":18000,"target_percent":100}`
 	if string(data) != want {
 		t.Fatalf("JSON = %s\nwant   %s", data, want)
 	}
@@ -73,6 +73,18 @@ func TestWindowJSONLeavesOutUnknownResetAndLength(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{"provider":"DeepSeek","windows":[{"id":"balance/cny","label":"Balance","remaining":110,"currency":"CNY"}]}`
+	if string(data) != want {
+		t.Fatalf("JSON = %s\nwant   %s", data, want)
+	}
+}
+
+func TestWindowJSONOmitsTargetWithoutDuration(t *testing.T) {
+	window := Window{ID: "session", Label: "5h", ResetsAt: time.Date(2000, 10, 7, 19, 0, 0, 0, time.UTC)}
+	data, err := json.Marshal(window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"id":"session","label":"5h","resets_at":"2000-10-07T19:00:00Z"}`
 	if string(data) != want {
 		t.Fatalf("JSON = %s\nwant   %s", data, want)
 	}

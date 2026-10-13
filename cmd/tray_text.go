@@ -101,13 +101,13 @@ func shortReset(t, now time.Time) string {
 	return "resets " + local.Format("Mon 15:04")
 }
 
-func windowValue(w usage.Window, now time.Time) string {
+func windowValue(w usage.Window) string {
 	pct, hasPct := windowPercent(w)
 	switch {
 	case hasPct && w.UsedPercent == nil:
-		return fmt.Sprintf("%s (%d/%d)%s", formatPct(pct), *w.Used, *w.Limit, usage.TargetSuffix(w, pct, now))
+		return fmt.Sprintf("%s (%d/%d)", formatPct(pct), *w.Used, *w.Limit)
 	case hasPct:
-		return formatPct(pct) + usage.TargetSuffix(w, pct, now)
+		return formatPct(pct)
 	case w.Remaining != nil:
 		return usage.FormatMoney(*w.Remaining, w.Currency)
 	default:
@@ -121,17 +121,17 @@ type textColumns struct {
 	label, value int
 }
 
-func newTextColumns(windows []usage.Window, now time.Time) textColumns {
+func newTextColumns(windows []usage.Window) textColumns {
 	var c textColumns
 	for _, w := range windows {
 		c.label = max(c.label, utf8.RuneCountInString(w.Label))
-		c.value = max(c.value, utf8.RuneCountInString(windowValue(w, now)))
+		c.value = max(c.value, utf8.RuneCountInString(windowValue(w)))
 	}
 	return c
 }
 
 func (c textColumns) row(w usage.Window, now time.Time) string {
-	value := windowValue(w, now)
+	value := windowValue(w)
 	s := textIndent + padRight(w.Label, c.label) + "   " + padLeft(value, c.value)
 	if !w.ResetsAt.IsZero() {
 		s += "   " + shortReset(w.ResetsAt, now)

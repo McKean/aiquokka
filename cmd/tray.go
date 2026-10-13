@@ -569,7 +569,7 @@ func (a *trayApp) addTextSections(sources []fetchResult, now time.Time, m *trayM
 			windows = append(windows, src.report.Windows...)
 		}
 	}
-	cols := newTextColumns(windows, now)
+	cols := newTextColumns(windows)
 
 	for _, src := range sources {
 		if src.err != nil {

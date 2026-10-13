@@ -237,7 +237,7 @@ func TestTextColumnsRow(t *testing.T) {
 	credits := usage.Window{Label: "Credits", Used: &used, Limit: &limit}
 	weekly := pctWindow("Weekly Fable", 44, now.Add(2*time.Hour))
 	fiveHour := pctWindow("5h", 3, now.Add(50*time.Hour))
-	cols := newTextColumns([]usage.Window{credits, weekly, fiveHour}, now)
+	cols := newTextColumns([]usage.Window{credits, weekly, fiveHour})
 
 	cases := map[string]struct {
 		w    usage.Window
@@ -252,28 +252,6 @@ func TestTextColumnsRow(t *testing.T) {
 		if got := cols.row(tc.w, now); got != tc.want {
 			t.Errorf("%s: got %q, want %q", name, got, tc.want)
 		}
-	}
-}
-
-func TestTextRowTarget(t *testing.T) {
-	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.Local)
-	// Half the 5h window has passed: target 50.
-	win := pctWindow("5h", 70, now.Add(150*time.Minute))
-	win.Duration = 5 * time.Hour
-	cols := newTextColumns([]usage.Window{win}, now)
-	if got := cols.row(win, now); !contains(got, "70% used, target 50% (over target)") {
-		t.Errorf("over target missing or unmarked: %q", got)
-	}
-
-	under := 20.0
-	win.UsedPercent = &under
-	cols = newTextColumns([]usage.Window{win}, now)
-	got := cols.row(win, now)
-	if !contains(got, "20% used, target 50%") {
-		t.Errorf("target missing: %q", got)
-	}
-	if contains(got, "over target") {
-		t.Errorf("under target must not be marked over: %q", got)
 	}
 }
 

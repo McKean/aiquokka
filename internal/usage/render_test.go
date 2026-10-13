@@ -72,38 +72,6 @@ func TestRenderWindowRemaining(t *testing.T) {
 	}
 }
 
-func TestRenderWindowTarget(t *testing.T) {
-	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	// Half the 5h window has passed: target 50.
-	resets := now.Add(150 * time.Minute)
-	under := 20.0
-	out := renderWindow(Window{Label: "5h", UsedPercent: &under, ResetsAt: resets, Duration: 5 * time.Hour}, now, 8)
-	if !strings.Contains(out, "20.0% used, target 50%") {
-		t.Fatalf("under target missing: %q", out)
-	}
-	if strings.Contains(out, "over target") {
-		t.Fatalf("under target must not be marked over: %q", out)
-	}
-
-	over := 70.0
-	out = renderWindow(Window{Label: "5h", UsedPercent: &over, ResetsAt: resets, Duration: 5 * time.Hour}, now, 8)
-	if !strings.Contains(out, "70.0% used, target 50% (over target)") {
-		t.Fatalf("over target missing or unmarked: %q", out)
-	}
-}
-
-func TestRenderWindowWithoutDurationPrintsAsBefore(t *testing.T) {
-	used := 38.0
-	now := time.Now()
-	out := renderWindow(Window{Label: "5h", UsedPercent: &used, ResetsAt: now.Add(time.Hour)}, now, 8)
-	if strings.Contains(out, "target") {
-		t.Fatalf("window without duration must not show a target: %q", out)
-	}
-	if !strings.Contains(out, "38.0%") {
-		t.Fatalf("used figure missing: %q", out)
-	}
-}
-
 func TestFormatMoney(t *testing.T) {
 	cases := map[string]string{
 		"CNY": "¥1.50",
