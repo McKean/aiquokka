@@ -52,6 +52,7 @@ func (c *cannedServe) wasStopped() bool {
 // serveLines makes Fetch ask a canned host instead of the Muse CLI.
 func serveLines(t *testing.T, hang bool, stderr string, lines ...string) *cannedServe {
 	t.Helper()
+	t.Setenv("AIQUOKKA_MUSE_CLI_TIMEOUT", defaultServeTimeout.String())
 	t.Setenv("MUSE_AUTH_PATH", filepath.Join(t.TempDir(), "auth.json"))
 	c := &cannedServe{}
 	stubServe(t, func(context.Context) (*serveConn, error) {
@@ -271,8 +272,8 @@ func TestFetchFromCLITimeout(t *testing.T) {
 // A host that never answers fails with our own wait, the elapsed time and
 // the last thing it said on stderr.
 func TestFetchFromCLITimeoutNamesElapsedAndStderr(t *testing.T) {
-	t.Setenv("AIQUOKKA_MUSE_CLI_TIMEOUT", "100ms")
 	host := serveLines(t, true, "starting up\nstill loading the model index\n", initializeAnswer)
+	t.Setenv("AIQUOKKA_MUSE_CLI_TIMEOUT", "100ms")
 
 	_, err := Fetch(context.Background())
 	if err == nil || usage.IsNotConfigured(err) {
@@ -322,6 +323,13 @@ func TestServeTimeoutFromEnv(t *testing.T) {
 				t.Errorf("serveTimeout() = %s, want %s", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestServeTimeoutErrorKeepsShortElapsed(t *testing.T) {
+	msg := serveTimeoutError(&serveConn{}, time.Millisecond, 1200*time.Microsecond, true).Error()
+	if !strings.Contains(msg, "(waited 1.2ms)") {
+		t.Fatalf("err = %q, want the short elapsed time", msg)
 	}
 }
 

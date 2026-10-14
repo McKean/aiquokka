@@ -17,6 +17,7 @@ import (
 // launcher is.
 func fakeMuse(t *testing.T, script string) string {
 	t.Helper()
+	t.Setenv("AIQUOKKA_MUSE_CLI_TIMEOUT", defaultServeTimeout.String())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "muse"), []byte("#!/bin/sh\n"+script), 0o755); err != nil {
 		t.Fatal(err)

@@ -215,7 +215,7 @@ func serveTimeoutError(conn *serveConn, timeout, elapsed time.Duration, ours boo
 	if !ours {
 		limit = "before the caller's deadline"
 	}
-	msg := fmt.Sprintf("`muse serve` did not answer %s (waited %s)", limit, elapsed.Round(100*time.Millisecond))
+	msg := fmt.Sprintf("`muse serve` did not answer %s (waited %s)", limit, elapsed)
 	if conn.diagnostics != nil {
 		if last := lastLine(conn.diagnostics()); last != "" {
 			if len(last) > 200 {
