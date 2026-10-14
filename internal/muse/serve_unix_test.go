@@ -4,6 +4,7 @@ package muse
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -61,13 +62,9 @@ done
 	}
 }
 
-// A host that never answers is killed at the deadline, with the children it
-// started: the launcher is a script, so the host itself may be one of them.
-func TestStartMuseServeTimeoutKillsGroup(t *testing.T) {
-	dir := fakeMuse(t, `sleep 60 &
-echo $! >"$(dirname "$0")/child"
-wait
-`)
+// A host that never answers fails the fetch at the deadline.
+func TestStartMuseServeTimeout(t *testing.T) {
+	fakeMuse(t, `sleep 60`)
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
@@ -78,13 +75,54 @@ wait
 	if took := time.Since(start); took > 3*time.Second {
 		t.Fatalf("Fetch took %s, want it to stop at the deadline", took)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "child"))
-	if err != nil {
-		t.Fatal(err)
+}
+
+// A host that never answers is killed when the fetch ends, with the children
+// it started: the launcher is a script, so the host itself may be one of them.
+// The fetch is cancelled only after the host's marker proves it started, so
+// the kill never races startup the way a fixed deadline would under load.
+func TestStartMuseServeCancelKillsGroup(t *testing.T) {
+	// The marker moves into place, so the test below reads all of it or none.
+	dir := fakeMuse(t, `d="$(dirname "$0")"
+sleep 60 &
+echo $! >"$d/child.tmp"
+mv "$d/child.tmp" "$d/child"
+wait
+`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := Fetch(ctx)
+		done <- err
+	}()
+	// The host may wait a while to be scheduled under load; the kill below
+	// waits for it instead of racing it.
+	var pid int
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		raw, err := os.ReadFile(filepath.Join(dir, "child"))
+		if err == nil {
+			pid, err = strconv.Atoi(strings.TrimSpace(string(raw)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+		if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the host never wrote its child marker")
+		}
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil {
-		t.Fatal(err)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Fetch still waits for a host that was cancelled")
 	}
 	// The kill is sent before Fetch returns; the child may take a moment to go.
 	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(10 * time.Millisecond) {
@@ -93,7 +131,7 @@ wait
 		}
 		if time.Now().After(deadline) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
-			t.Fatalf("child %d of the host outlived the timeout", pid)
+			t.Fatalf("child %d of the host outlived the cancel", pid)
 		}
 	}
 }
