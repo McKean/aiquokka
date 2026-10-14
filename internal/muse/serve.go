@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -15,9 +16,23 @@ import (
 	"github.com/McKean/aiquokka/internal/usage"
 )
 
-// serveTimeout bounds the whole exchange with `muse serve`: start, handshake
-// and the one read. By hand it takes well under a second.
-const serveTimeout = 5 * time.Second
+// defaultServeTimeout bounds the whole exchange with `muse serve`: start,
+// handshake and the one read. The host is a ~360MB binary whose start alone
+// takes 1-4s on macOS and varies with load, so the bound leaves headroom;
+// AIQUOKKA_MUSE_CLI_TIMEOUT overrides it.
+const defaultServeTimeout = 15 * time.Second
+
+// serveTimeout is how long fetchFromCLI waits for `muse serve`, from
+// AIQUOKKA_MUSE_CLI_TIMEOUT (a Go duration like "30s") or the default. An
+// empty, unparsable or non-positive value keeps the default.
+func serveTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("AIQUOKKA_MUSE_CLI_TIMEOUT")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultServeTimeout
+}
 
 // serveConn is a running `muse serve`: JSON-RPC 2.0 on its stdin and stdout,
 // one object per line. stop ends the process and unblocks a pending read; it
@@ -98,7 +113,15 @@ func fetchFromCLI(ctx context.Context) (*usage.Report, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(ctx, serveTimeout)
+	timeout := serveTimeout()
+	start := time.Now()
+	// The caller's own deadline may bind first (aiquokka wraps a fetch in
+	// 20-30s); the timeout error names whichever did.
+	ours := true
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(start.Add(timeout)) {
+		ours = false
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	conn, err := startServe(ctx)
@@ -117,7 +140,7 @@ func fetchFromCLI(ctx context.Context) (*usage.Report, error) {
 	if err != nil {
 		if ctx.Err() != nil {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return nil, fmt.Errorf("`muse serve` did not answer within %s", serveTimeout)
+				return nil, serveTimeoutError(conn, timeout, time.Since(start), ours)
 			}
 			return nil, ctx.Err()
 		}
@@ -181,6 +204,41 @@ func serveFailure(method string, e *serveError) error {
 		return usage.NotConfigured("the Muse CLI reports no usable login (%s) — run `muse login`", msg)
 	}
 	return fmt.Errorf("`muse serve` refused %s: %s (code %d)", method, msg, e.Code)
+}
+
+// serveTimeoutError reports a host that stayed silent past the deadline: how
+// long it was given, how long passed, and the last thing it said on stderr,
+// if anything. ours tells whether our own wait bound the exchange or the
+// caller's deadline did; only the first can be lengthened from the env.
+func serveTimeoutError(conn *serveConn, timeout, elapsed time.Duration, ours bool) error {
+	limit := fmt.Sprintf("within %s", timeout)
+	if !ours {
+		limit = "before the caller's deadline"
+	}
+	msg := fmt.Sprintf("`muse serve` did not answer %s (waited %s)", limit, elapsed.Round(100*time.Millisecond))
+	if conn.diagnostics != nil {
+		if last := lastLine(conn.diagnostics()); last != "" {
+			if len(last) > 200 {
+				last = last[:200] + "…"
+			}
+			msg += ": " + last
+		}
+	}
+	if ours {
+		msg += "; set AIQUOKKA_MUSE_CLI_TIMEOUT (e.g. 30s) to wait longer"
+	}
+	return errors.New(msg)
+}
+
+// lastLine keeps the last non-empty line of a diagnostic, on one line.
+func lastLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := oneLine(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // serveEnded reports a host that closed its output before answering, with

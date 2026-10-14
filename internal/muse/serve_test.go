@@ -245,14 +245,83 @@ func TestFetchFromCLITimeout(t *testing.T) {
 		if err == nil || usage.IsNotConfigured(err) {
 			t.Fatalf("err = %v, want a timeout error", err)
 		}
-		if !strings.Contains(err.Error(), "did not answer") {
-			t.Errorf("err = %q, want it to say the host did not answer", err)
+		msg := err.Error()
+		if !strings.Contains(msg, "did not answer") {
+			t.Errorf("err = %q, want it to say the host did not answer", msg)
+		}
+		// The caller's 50ms binds before our own wait, so the error names
+		// that deadline instead of our timeout, with no env hint.
+		if !strings.Contains(msg, "before the caller's deadline") {
+			t.Errorf("err = %q, want it to name the caller's deadline", msg)
+		}
+		if !strings.Contains(msg, "waited") {
+			t.Errorf("err = %q, want the elapsed wait", msg)
+		}
+		if strings.Contains(msg, "AIQUOKKA_MUSE_CLI_TIMEOUT") {
+			t.Errorf("err = %q, must not hint at lengthening our own wait", msg)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Fetch still waits for a host that does not answer")
 	}
 	if !host.wasStopped() {
 		t.Error("the silent host was left running")
+	}
+}
+
+// A host that never answers fails with our own wait, the elapsed time and
+// the last thing it said on stderr.
+func TestFetchFromCLITimeoutNamesElapsedAndStderr(t *testing.T) {
+	t.Setenv("AIQUOKKA_MUSE_CLI_TIMEOUT", "100ms")
+	host := serveLines(t, true, "starting up\nstill loading the model index\n", initializeAnswer)
+
+	_, err := Fetch(context.Background())
+	if err == nil || usage.IsNotConfigured(err) {
+		t.Fatalf("err = %v, want a timeout error", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "did not answer within 100ms") {
+		t.Errorf("err = %q, want our own wait from the env", msg)
+	}
+	if !strings.Contains(msg, "waited") {
+		t.Errorf("err = %q, want the elapsed wait", msg)
+	}
+	if !strings.Contains(msg, "still loading the model index") {
+		t.Errorf("err = %q, want the host's last stderr line", msg)
+	}
+	if strings.Contains(msg, "starting up") {
+		t.Errorf("err = %q, want only the last stderr line", msg)
+	}
+	if !strings.Contains(msg, "AIQUOKKA_MUSE_CLI_TIMEOUT") {
+		t.Errorf("err = %q, want the longer-wait hint", msg)
+	}
+	if strings.Contains(msg, "\n") {
+		t.Errorf("err = %q, want one line", msg)
+	}
+	if !host.wasStopped() {
+		t.Error("the silent host was left running")
+	}
+}
+
+func TestServeTimeoutFromEnv(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  time.Duration
+	}{
+		{"empty", "", defaultServeTimeout},
+		{"valid", "30s", 30 * time.Second},
+		{"padded", "  45s ", 45 * time.Second},
+		{"minutes", "2m", 2 * time.Minute},
+		{"invalid", "soon", defaultServeTimeout},
+		{"zero", "0", defaultServeTimeout},
+		{"negative", "-5s", defaultServeTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AIQUOKKA_MUSE_CLI_TIMEOUT", tc.value)
+			if got := serveTimeout(); got != tc.want {
+				t.Errorf("serveTimeout() = %s, want %s", got, tc.want)
+			}
+		})
 	}
 }
 
