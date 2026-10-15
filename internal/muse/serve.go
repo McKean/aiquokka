@@ -265,21 +265,35 @@ func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// macEnableHints tells a macOS user how to get windows when the Muse CLI
+// answered but has observed no usage yet. This path only runs when `muse`
+// is on PATH and `muse serve` replied (otherwise Fetch returns an error), so
+// the CLI is present and the empty report is an enablement gap, not a
+// missing install. Two ways out: let the host observe a window, or move the
+// login to the file backend so aiquokka can read the token directly.
+var macEnableHints = []usage.Fact{
+	{Label: "Notice", Value: "muse answered but has observed no usage yet"},
+	{Label: "Try", Value: "run `muse exec \"hi\"` once, then re-run `aiquokka muse`"},
+	{Label: "Or", Value: "use a file login: `muse logout`, then `TBH_CREDENTIAL_BACKEND=file muse login` (keep it set for `muse`)"},
+}
+
 // reportFromCLI converts the usage/read result to the shared model. A missing
 // usage means this host has observed none, so there are no windows to show
 // and none is invented. The tier is the provider's id, not the display name
 // the mint call gives.
 func reportFromCLI(read *cliUsage) *usage.Report {
 	report := &usage.Report{Provider: "Muse"}
-	if read.Usage == nil {
-		return report
+	if read.Usage != nil {
+		report.Plan = read.Usage.Tier
+		if w := rollingWindow(read.Usage.Window.snapshot()); w != nil {
+			report.Windows = append(report.Windows, *w)
+		}
+		if w := weeklyWindow(read.Usage.Weekly.snapshot()); w != nil {
+			report.Windows = append(report.Windows, *w)
+		}
 	}
-	report.Plan = read.Usage.Tier
-	if w := rollingWindow(read.Usage.Window.snapshot()); w != nil {
-		report.Windows = append(report.Windows, *w)
-	}
-	if w := weeklyWindow(read.Usage.Weekly.snapshot()); w != nil {
-		report.Windows = append(report.Windows, *w)
+	if len(report.Windows) == 0 {
+		report.Extra = append(report.Extra, macEnableHints...)
 	}
 	return report
 }
