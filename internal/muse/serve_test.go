@@ -160,18 +160,21 @@ func TestFetchFromCLINothingObserved(t *testing.T) {
 		hints[i] = f.Label + ": " + f.Value
 	}
 	joined := strings.Join(hints, "\n")
-	for _, want := range []string{`muse exec "hi"`, "TBH_CREDENTIAL_BACKEND=file muse login", "muse logout"} {
+	for _, want := range []string{"TBH_CREDENTIAL_BACKEND=file muse login", "muse logout"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("hints = %q, want them to mention %q", joined, want)
 		}
+	}
+	if strings.Contains(joined, "muse exec") {
+		t.Errorf("hints = %q, want only the stable TBH fix, no observe-a-window workaround", joined)
 	}
 	var out strings.Builder
 	usage.Render(&out, report, time.Now())
 	if !strings.Contains(out.String(), "no usage windows reported") {
 		t.Fatalf("rendered %q, want \"no usage windows reported\"", out.String())
 	}
-	if !strings.Contains(out.String(), `muse exec "hi"`) {
-		t.Fatalf("rendered %q, want the enable steps", out.String())
+	if !strings.Contains(out.String(), "TBH_CREDENTIAL_BACKEND=file muse login") {
+		t.Fatalf("rendered %q, want the TBH fix in the response", out.String())
 	}
 }
 

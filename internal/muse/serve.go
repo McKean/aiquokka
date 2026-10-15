@@ -269,12 +269,11 @@ func oneLine(s string) string {
 // answered but has observed no usage yet. This path only runs when `muse`
 // is on PATH and `muse serve` replied (otherwise Fetch returns an error), so
 // the CLI is present and the empty report is an enablement gap, not a
-// missing install. Two ways out: let the host observe a window, or move the
-// login to the file backend so aiquokka can read the token directly.
+// missing install. The stable fix is to move the login to the file backend
+// so aiquokka can read the token directly, as on Linux.
 var macEnableHints = []usage.Fact{
-	{Label: "Notice", Value: "muse answered but has observed no usage yet"},
-	{Label: "Try", Value: "run `muse exec \"hi\"` once, then re-run `aiquokka muse`"},
-	{Label: "Or", Value: "use a file login: `muse logout`, then `TBH_CREDENTIAL_BACKEND=file muse login` (keep it set for `muse`)"},
+	{Label: "Notice", Value: "macOS Keychain login: muse answered but has observed no usage yet"},
+	{Label: "Fix", Value: "`muse logout`, then `TBH_CREDENTIAL_BACKEND=file muse login` (keep it set for `muse`), then re-run `aiquokka muse`"},
 }
 
 // reportFromCLI converts the usage/read result to the shared model. A missing

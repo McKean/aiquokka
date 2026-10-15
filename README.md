@@ -314,15 +314,9 @@ is on `PATH` and logged in, but the host behind `muse serve` has not
 observed any usage yet. The login lives in Keychain (`"storage":
 "keychain"` in `~/.config/muse/auth.json`, no inline token), so aiquokka
 cannot mint a key directly and can only report what the host last saw.
+In that case the report itself carries the fix below.
 
-Quick fix — let the host observe a window, then re-check:
-
-```sh
-muse exec "hi"
-aiquokka muse
-```
-
-Durable fix — store the login in the file like Linux, so aiquokka reads
+Stable fix — store the login in the file like Linux, so aiquokka reads
 the token directly. Log out in Keychain mode first; running the second
 login straight away fails with `keychain unavailable and the meta slot
 is keychain-referenced (FM-008)`:
