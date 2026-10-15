@@ -150,13 +150,43 @@ func TestFetchFromCLINothingObserved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Windows) != 0 || len(report.Extra) != 0 {
-		t.Fatalf("report = %+v, want no windows and no facts", report)
+	// muse is present and answered, so the empty report carries the macOS
+	// enable steps instead of leaving the user with a bare empty section.
+	if len(report.Windows) != 0 {
+		t.Fatalf("report = %+v, want no windows", report)
+	}
+	hints := make([]string, len(report.Extra))
+	for i, f := range report.Extra {
+		hints[i] = f.Label + ": " + f.Value
+	}
+	joined := strings.Join(hints, "\n")
+	for _, want := range []string{"TBH_CREDENTIAL_BACKEND=file muse login", "muse logout"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("hints = %q, want them to mention %q", joined, want)
+		}
+	}
+	if strings.Contains(joined, "muse exec") {
+		t.Errorf("hints = %q, want only the stable TBH fix, no observe-a-window workaround", joined)
 	}
 	var out strings.Builder
 	usage.Render(&out, report, time.Now())
 	if !strings.Contains(out.String(), "no usage windows reported") {
 		t.Fatalf("rendered %q, want \"no usage windows reported\"", out.String())
+	}
+	if !strings.Contains(out.String(), "TBH_CREDENTIAL_BACKEND=file muse login") {
+		t.Fatalf("rendered %q, want the TBH fix in the response", out.String())
+	}
+}
+
+func TestFetchFromCLIFilledHasNoEnableHints(t *testing.T) {
+	serveLines(t, false, "", initializeAnswer, filledAnswer)
+
+	report, err := Fetch(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Extra) != 0 {
+		t.Fatalf("report = %+v, want windows without enable hints", report)
 	}
 }
 

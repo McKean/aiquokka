@@ -305,7 +305,33 @@ Per-provider notes:
 - **Kiro** runs the installed CLI’s built-in `/usage` command non-interactively, so Kiro retains ownership of credentials and token refresh. It reports monthly credits, plan, reset date, and overage status.
 - **Antigravity** runs `agy -p "/usage" --output-format json`, which agy 1.2.x answers non-interactively without opening a session or spending quota. agy stays responsible for its credentials and token refresh.
 - **Z.ai** reports the prepaid usage bundles (resource packages) as used/total token bars plus the pay-as-you-go cash balance. Bundles are model-specific — a bundle for `glm-5.3` stays untouched while requests to `glm-5.3-flash` burn cash — so check the "Applies to" fact if your cash drains faster than expected. The key is the Zhipu `{id}.{secret}` form; it is turned into a signed JWT locally. On the China platform, set `ZAI_BASE_URL=https://open.bigmodel.cn/api` (balance is then shown as CNY).
-- **Muse** reports the subscription's rolling 5-hour and weekly windows. Where the `muse login` device token is inline in `~/.config/muse/auth.json` (override with `MUSE_AUTH_PATH`), as on Linux, they come from the CLI's own key-mint call. `META_API_KEY` and dashboard keys cannot read quota, so they are not used. Meta omits the usage block while the 5-hour window is idle, which shows as "idle" rather than 0%; an inactive subscription or a missing payment method is reported as such. The endpoint is rate-limited, so one read is reused for five minutes. The minted key and every identity field are discarded, and the login is never written. On macOS the CLI keeps the token in its own Keychain item, which aiquokka does not read: it starts `muse serve --no-session-log`, asks it for `usage/read`, and ends it, waiting 15 seconds at most (`AIQUOKKA_MUSE_CLI_TIMEOUT` overrides the wait, e.g. `AIQUOKKA_MUSE_CLI_TIMEOUT=30s`). The host is slow to start — a few seconds, more under load — and stays silent until it answers, so a timeout names how long was waited and the last line the CLI wrote to stderr. That needs `muse` on `PATH` and raises no Keychain dialog. The CLI answers with the usage it last observed; when it has observed none, aiquokka prints "no usage windows reported". The plan shown this way is the tier's id, not its display name.
+- **Muse** reports the subscription's rolling 5-hour and weekly windows. Where the `muse login` device token is inline in `~/.config/muse/auth.json` (override with `MUSE_AUTH_PATH`), as on Linux, they come from the CLI's own key-mint call. `META_API_KEY` and dashboard keys cannot read quota, so they are not used. Meta omits the usage block while the 5-hour window is idle, which shows as "idle" rather than 0%; an inactive subscription or a missing payment method is reported as such. The endpoint is rate-limited, so one read is reused for five minutes. The minted key and every identity field are discarded, and the login is never written. On macOS the CLI keeps the token in its own Keychain item, which aiquokka does not read: it starts `muse serve --no-session-log`, asks it for `usage/read`, and ends it, waiting 15 seconds at most (`AIQUOKKA_MUSE_CLI_TIMEOUT` overrides the wait, e.g. `AIQUOKKA_MUSE_CLI_TIMEOUT=30s`). The host is slow to start — a few seconds, more under load — and stays silent until it answers, so a timeout names how long was waited and the last line the CLI wrote to stderr. That needs `muse` on `PATH` and raises no Keychain dialog. The CLI answers with the usage it last observed; when it has observed none, aiquokka prints "no usage windows reported" with the enable steps below. The plan shown this way is the tier's id, not its display name.
+
+### Muse on macOS: empty report but `muse` is installed
+
+`aiquokka muse` prints `no usage windows reported` on macOS when `muse`
+is on `PATH` and logged in, but the host behind `muse serve` has not
+observed any usage yet. The login lives in Keychain (`"storage":
+"keychain"` in `~/.config/muse/auth.json`, no inline token), so aiquokka
+cannot mint a key directly and can only report what the host last saw.
+In that case the report itself carries the fix below.
+
+Stable fix — store the login in the file like Linux, so aiquokka reads
+the token directly. Log out in Keychain mode first; running the second
+login straight away fails with `keychain unavailable and the meta slot
+is keychain-referenced (FM-008)`:
+
+```sh
+muse logout
+TBH_CREDENTIAL_BACKEND=file muse login
+# keep the variable set for later muse runs, e.g. in your shell profile:
+export TBH_CREDENTIAL_BACKEND=file
+aiquokka muse
+```
+
+After the file login, `~/.config/muse/auth.json` holds an inline
+`access_token` and `aiquokka muse` uses the key-mint call without
+starting `muse serve`.
 
 ## Caveats
 
