@@ -178,3 +178,26 @@ type Fact struct {
 	Label string `json:"label" yaml:"label"`
 	Value string `json:"value" yaml:"value"`
 }
+
+// reportOut is a Report as JSON prints it: the same keys in the same order,
+// with Windows a list even when the provider knows of none, never null, so
+// consumers always read an array. It names every field instead of embedding
+// Report because an embedded struct's keys print first, which would move
+// windows after extra.
+type reportOut struct {
+	Provider string   `json:"provider"`
+	Plan     string   `json:"plan,omitempty"`
+	Account  *Account `json:"account,omitempty"`
+	Windows  []Window `json:"windows"`
+	Extra    []Fact   `json:"extra,omitempty"`
+}
+
+func (r Report) out() reportOut {
+	out := reportOut{Provider: r.Provider, Plan: r.Plan, Account: r.Account, Windows: r.Windows, Extra: r.Extra}
+	if out.Windows == nil {
+		out.Windows = []Window{}
+	}
+	return out
+}
+
+func (r Report) MarshalJSON() ([]byte, error) { return json.Marshal(r.out()) }

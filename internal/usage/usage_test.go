@@ -104,6 +104,21 @@ func TestWindowYAMLMatchesJSONKeys(t *testing.T) {
 	}
 }
 
+// An empty report prints windows as an empty list, never null, so consumers
+// always read an array; the extras stay.
+func TestReportJSONEmptyWindowsIsList(t *testing.T) {
+	data, err := json.Marshal(Report{Provider: "Muse", Extra: []Fact{
+		{Label: "Notice", Value: "no usage yet"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"provider":"Muse","windows":[],"extra":[{"label":"Notice","value":"no usage yet"}]}`
+	if string(data) != want {
+		t.Fatalf("JSON = %s\nwant   %s", data, want)
+	}
+}
+
 func TestReportJSONAccount(t *testing.T) {
 	data, err := json.Marshal(Report{Provider: "Grok", Account: NewAccount("u-1", "a@example.com")})
 	if err != nil {

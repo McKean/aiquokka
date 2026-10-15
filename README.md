@@ -162,6 +162,8 @@ $ aiquokka grok --json
 }
 ```
 
+`windows` is always a list: empty when the provider knows of none, never null.
+
 Per window:
 
 - `id` names the window for a program. It is unique within the provider and

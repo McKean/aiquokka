@@ -176,6 +176,18 @@ func TestFetchFromCLINothingObserved(t *testing.T) {
 	if !strings.Contains(out.String(), "TBH_CREDENTIAL_BACKEND=file muse login") {
 		t.Fatalf("rendered %q, want the TBH fix in the response", out.String())
 	}
+	// --json answers a list, empty when nothing is known, never null, with
+	// the extras intact.
+	raw, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"windows":[]`) {
+		t.Fatalf("JSON = %s, want an empty windows list", raw)
+	}
+	if !strings.Contains(string(raw), "TBH_CREDENTIAL_BACKEND=file muse login") {
+		t.Fatalf("JSON = %s, want the TBH fix in the extras", raw)
+	}
 }
 
 func TestFetchFromCLIFilledHasNoEnableHints(t *testing.T) {
