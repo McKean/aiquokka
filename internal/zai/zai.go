@@ -161,6 +161,7 @@ func reportFromBundles(bundles []bundle) *usage.Report {
 		report.Windows = append(report.Windows, usage.Window{
 			ID:    bundleID(b),
 			Label: bundleLabel(b, bundles),
+			Model: b.SuitableModel,
 			Used:  &used,
 			Limit: &b.TokensMagnitude,
 		})

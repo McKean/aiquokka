@@ -204,9 +204,15 @@ func TestBundleAndCashWindowIDs(t *testing.T) {
 	if w := report.Windows[0]; w.ID != "bundle/glm-5.3" || w.Label != "Bundle" {
 		t.Fatalf("bundle window = %+v", w)
 	}
+	if w := report.Windows[0]; w.Model != "GLM-5.3" {
+		t.Fatalf("bundle window model = %q, want GLM-5.3", w.Model)
+	}
 	appendCash(report, &accountData{Balance: 3})
 	if w := report.Windows[1]; w.ID != "cash" {
 		t.Fatalf("cash window = %+v", w)
+	}
+	if w := report.Windows[1]; w.Model != "" {
+		t.Fatalf("cash window model = %q, want empty", w.Model)
 	}
 	if id := bundleID(bundle{}); id != "bundle" {
 		t.Fatalf("bundleID without a model = %q", id)
@@ -245,6 +251,12 @@ func TestFetchAsksBundlesAndCashAtOnce(t *testing.T) {
 	}
 	if len(report.Windows) != 2 || report.Windows[0].ID != "bundle" || report.Windows[1].ID != "cash" {
 		t.Fatalf("windows = %+v", report.Windows)
+	}
+	// The stub names no model, so neither window carries one.
+	for _, w := range report.Windows {
+		if w.Model != "" {
+			t.Fatalf("window %s model = %q, want empty", w.ID, w.Model)
+		}
 	}
 }
 
