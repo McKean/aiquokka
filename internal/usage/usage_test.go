@@ -64,15 +64,20 @@ func TestTargetPercent(t *testing.T) {
 
 // A window with no known reset or length used to print resets_at as year 1:
 // omitempty never drops a time.Time.
-func TestWindowJSONLeavesOutUnknownResetAndLength(t *testing.T) {
+func TestWindowJSONOmitsUnknownFieldsAndNamesPerModel(t *testing.T) {
 	remaining := 110.0
+	fiveHour := 12.0
+	weekly := 34.0
 	data, err := json.Marshal(Report{Provider: "DeepSeek", Windows: []Window{
 		{ID: "balance/cny", Label: "Balance", Remaining: &remaining, Currency: "CNY"},
+		{ID: "session", Label: "5h", UsedPercent: &fiveHour},
+		{ID: "weekly_all", Label: "Weekly", UsedPercent: &weekly},
+		{ID: "weekly_scoped", Label: "Weekly Fable", Model: "Fable"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"provider":"DeepSeek","windows":[{"id":"balance/cny","label":"Balance","remaining":110,"currency":"CNY"}]}`
+	want := `{"provider":"DeepSeek","windows":[{"id":"balance/cny","label":"Balance","remaining":110,"currency":"CNY"},{"id":"session","label":"5h","used_percent":12},{"id":"weekly_all","label":"Weekly","used_percent":34},{"id":"weekly_scoped","label":"Weekly Fable","model":"Fable"}]}`
 	if string(data) != want {
 		t.Fatalf("JSON = %s\nwant   %s", data, want)
 	}

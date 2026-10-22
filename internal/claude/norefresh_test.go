@@ -145,4 +145,18 @@ func TestWindowIDIsTheLimitKind(t *testing.T) {
 	if w == nil || w.ID != "weekly_scoped" || w.Label != "Weekly Fable" || w.Duration != week {
 		t.Fatalf("window = %+v", w)
 	}
+	if w.Model != "Fable" {
+		t.Fatalf("weekly_scoped Model = %q, want Fable", w.Model)
+	}
+	// The other windows count for every model, so they name none.
+	for _, kind := range []string{"session", "weekly_all"} {
+		shared := usageResponse{Limits: []limit{{Kind: kind, Percent: &pct}}}
+		w := shared.window(kind, kind, week)
+		if w == nil {
+			t.Fatalf("%s window is nil", kind)
+		}
+		if w.Model != "" {
+			t.Fatalf("%s Model = %q, want none", kind, w.Model)
+		}
+	}
 }

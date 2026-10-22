@@ -37,6 +37,9 @@ type Window struct {
 	Remaining *float64 `json:"remaining,omitempty" yaml:"remaining,omitempty"`
 	// Currency is the ISO currency code for Remaining (e.g. "CNY", "USD").
 	Currency string `json:"currency,omitempty" yaml:"currency,omitempty"`
+	// Model is the model the window counts for, in the provider's own words
+	// (e.g. "Fable"). Empty for a window every model draws from.
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 	// Duration is the full length of the window (e.g. 5h, 7d). When set along
 	// with ResetsAt it lets the renderer draw a linear-pace marker showing where
 	// even consumption would put you at the current time. Structured output

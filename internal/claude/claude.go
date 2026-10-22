@@ -94,6 +94,11 @@ func (resp *usageResponse) window(kind, label string, d time.Duration) *usage.Wi
 		}
 		// The endpoint's own kind is the ID: it outlives a reworded label.
 		out := usage.Window{ID: kind, Label: label, UsedPercent: l.Percent, Duration: d}
+		if kind == "weekly_scoped" {
+			// The endpoint names no model; the scoped window counts for
+			// Fable alone.
+			out.Model = "Fable"
+		}
 		if t, err := time.Parse(time.RFC3339, l.ResetsAt); err == nil {
 			out.ResetsAt = t
 		}
