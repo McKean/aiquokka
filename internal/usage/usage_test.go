@@ -24,8 +24,8 @@ func TestWindowJSONCarriesIDAndLength(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The reset is long past, so the whole window has elapsed: target 100.
-	want := `{"id":"session","label":"5h","used_percent":24,"resets_at":"2000-10-07T19:00:00Z","duration_seconds":18000,"target_percent":100}`
+	// The reset is long past, so the whole window has elapsed: target 90.
+	want := `{"id":"session","label":"5h","used_percent":24,"resets_at":"2000-10-07T19:00:00Z","duration_seconds":18000,"target_percent":90}`
 	if string(data) != want {
 		t.Fatalf("JSON = %s\nwant   %s", data, want)
 	}
@@ -36,21 +36,21 @@ func TestTargetPercent(t *testing.T) {
 	dur := 5 * time.Hour
 	w := Window{ResetsAt: resets, Duration: dur}
 
-	// Start of the window: nothing has passed.
-	if got, ok := w.TargetPercent(resets.Add(-dur)); !ok || got != 0 {
-		t.Errorf("start = %v, %v; want 0, true", got, ok)
+	// Start of the window: the cushion lifts the floor to 10.
+	if got, ok := w.TargetPercent(resets.Add(-dur)); !ok || got != 10 {
+		t.Errorf("start = %v, %v; want 10, true", got, ok)
 	}
-	// Middle: half the window has passed.
+	// Middle: half the window has passed, the cushion nets to zero.
 	if got, ok := w.TargetPercent(resets.Add(-dur / 2)); !ok || got != 50 {
 		t.Errorf("middle = %v, %v; want 50, true", got, ok)
 	}
-	// Past the reset: clamped to 100.
-	if got, ok := w.TargetPercent(resets.Add(time.Hour)); !ok || got != 100 {
-		t.Errorf("past reset = %v, %v; want 100, true", got, ok)
+	// Past the reset: clamped to 90.
+	if got, ok := w.TargetPercent(resets.Add(time.Hour)); !ok || got != 90 {
+		t.Errorf("past reset = %v, %v; want 90, true", got, ok)
 	}
-	// Before the window starts: clamped to 0.
-	if got, ok := w.TargetPercent(resets.Add(-2 * dur)); !ok || got != 0 {
-		t.Errorf("before start = %v, %v; want 0, true", got, ok)
+	// Before the window starts: clamped to 10.
+	if got, ok := w.TargetPercent(resets.Add(-2 * dur)); !ok || got != 10 {
+		t.Errorf("before start = %v, %v; want 10, true", got, ok)
 	}
 	// Missing duration: no target, do not guess.
 	if _, ok := (Window{ResetsAt: resets}).TargetPercent(resets); ok {

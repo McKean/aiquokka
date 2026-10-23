@@ -150,7 +150,8 @@ $ aiquokka grok --json
       "label": "Weekly",
       "used_percent": 0,
       "resets_at": "2026-07-25T07:05:43.476608Z",
-      "duration_seconds": 604800
+      "duration_seconds": 604800,
+      "target_percent": 90
     }
   ],
   "extra": [
@@ -173,6 +174,8 @@ Per window:
 - `duration_seconds` is the window's length. It is left out when the provider
   does not say (a balance, a Z.ai bundle, Kiro's credits).
 - `resets_at` is left out when there is no known reset.
+- `target_percent` is the even-consumption target, adjusted by a straight-line
+  cushion: 10 at the start of the window, rising to 90 at its reset.
 
 | Provider | Window ids |
 | --- | --- |

@@ -129,16 +129,26 @@ func (w Window) Pace(now time.Time) float64 {
 	return frac
 }
 
-// TargetPercent returns the share of the window that has passed at now, 0 to
-// 100: 100 * (duration - time until reset) / duration, clamped. It reports
-// false when either timing input is missing, so callers leave the key out
-// instead of guessing.
+// TargetFloor and TargetCeiling bound the reported target: a window fresh
+// from its reset reports 10, not 0, so consumers comparing usage against the
+// target act from the first hour; a window at its end reports 90, leaving a
+// buffer.
+const (
+	TargetFloor   = 10.0
+	TargetCeiling = 90.0
+)
+
+// TargetPercent returns the share of the window that has passed at now,
+// cushioned by a straight line from +10 at the reset to -10 at the end:
+// TargetFloor at the reset, TargetCeiling at the end, the pace between. It
+// reports false when either timing input is missing, so callers leave the key
+// out instead of guessing.
 func (w Window) TargetPercent(now time.Time) (float64, bool) {
 	pace := w.Pace(now)
 	if pace < 0 {
 		return 0, false
 	}
-	return pace * 100, true
+	return TargetFloor + (TargetCeiling-TargetFloor)*pace, true
 }
 
 // Report is a provider's full usage picture.
