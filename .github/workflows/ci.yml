@@ -1,0 +1,41 @@
+name: ci
+
+# Every uses: below is pinned by full commit SHA, with the release it is
+# as a comment; a tag that moves would run code no review saw.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # go-version-file pins the toolchain go.mod names; cache keeps the
+      # module and build caches keyed on go.sum.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:"
+            echo "$out"
+            exit 1
+          fi
+      # The depot's test command: go vet, then go test over every package.
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
