@@ -1,0 +1,13 @@
+#!/bin/sh
+# Depot test entry, mirroring CI (.github/workflows/ci.yml) order:
+# gofmt gate first, then go vet, then go test.
+set -eu
+
+out=$(gofmt -l .)
+if [ -n "$out" ]; then
+  echo "gofmt needed on:"
+  echo "$out"
+  exit 1
+fi
+
+go vet ./... && go test ./...

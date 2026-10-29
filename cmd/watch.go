@@ -16,8 +16,8 @@ type watchAction int
 
 const (
 	watchStop   watchAction = iota // context cancelled / quit key
-	watchTick                       // interval elapsed
-	watchManual                     // user pressed r
+	watchTick                      // interval elapsed
+	watchManual                    // user pressed r
 )
 
 // pulseIntensity cycles SGR intensity for a soft heartbeat on the status icon.
