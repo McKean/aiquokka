@@ -1,6 +1,6 @@
 #!/bin/sh
 # Depot test entry, mirroring CI (.github/workflows/ci.yml) order:
-# gofmt gate first, then go vet, then go test.
+# gofmt gate first, then go vet, then go test, then the install script test.
 set -eu
 
 out=$(gofmt -l .)
@@ -11,3 +11,6 @@ if [ -n "$out" ]; then
 fi
 
 go vet ./... && go test ./...
+
+# install.sh against local fixtures, no network.
+sh install_test.sh

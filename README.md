@@ -20,8 +20,24 @@ already stores (or your existing API key). No tokens to paste, no config.
 
 ## Install
 
-From a release, with no Go toolchain. Pick your OS and architecture
-(`darwin` or `linux`, `arm64` or `amd64`) and the release you want from
+One line, with no Go toolchain:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/McKean/aiquokka/main/install.sh | sh
+```
+
+This fetches the latest release for your OS and architecture (`darwin`
+or `linux`, `arm64` or `amd64`), checks the archive against its
+checksum, and installs the binary into `~/.local/bin`. Pin a release
+with `AIQUOKKA_VERSION`, or change the destination with `INSTALL_DIR`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/McKean/aiquokka/main/install.sh | AIQUOKKA_VERSION=v0.1.0 INSTALL_DIR=/usr/local/bin sh
+```
+
+`~/.local/bin` must be on your `PATH`; if it is not, the script says so.
+
+The same steps by hand, from any release listed at
 https://github.com/McKean/aiquokka/releases:
 
 ```sh
@@ -34,8 +50,7 @@ tar xzf "aiquokka-$VERSION-$OS-$ARCH.tar.gz"
 mv aiquokka ~/.local/bin/  # or anywhere on your PATH
 ```
 
-On macOS `sha256sum` is `shasum -a 256` instead. `~/.local/bin` must be on
-your `PATH`; if it is not, use `/usr/local/bin` (which needs `sudo`).
+On macOS `sha256sum` is `shasum -a 256` instead.
 
 Or with Go:
 
