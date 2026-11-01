@@ -81,12 +81,14 @@ jobs:
         run: |
           set -eu
           mkdir -p build dist
-          go build -o "build/aiquokka" .
+          go build -ldflags "-X github.com/McKean/aiquokka/cmd.version=$VERSION" -o "build/aiquokka" .
           tar -czf "dist/aiquokka-$VERSION-$GOOS-$GOARCH.tar.gz" -C build aiquokka
       # Only legs whose binary runs on its own runner smoke-test it.
       - name: smoke-test the binary
         if: (matrix.goos == 'linux' && matrix.goarch == 'amd64') || (matrix.goos == 'darwin' && matrix.goarch == 'arm64')
-        run: ./build/aiquokka --help >/dev/null
+        run: |
+          ./build/aiquokka --help >/dev/null
+          ./build/aiquokka --version | grep -F "$VERSION"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: aiquokka-${{ matrix.goos }}-${{ matrix.goarch }}

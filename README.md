@@ -85,6 +85,8 @@ aiquokka tray      # menu bar (macOS) / system tray (Linux) app
 
 aiquokka --watch           # refresh all providers every 60s
 aiquokka claude -w         # watch a single provider
+
+aiquokka --version         # print the installed version
 ```
 
 ```

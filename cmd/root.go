@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"runtime/debug"
 	"time"
 
 	"github.com/McKean/aiquokka/internal/antigravity"
@@ -46,10 +47,29 @@ var noRefresh bool
 // watchInterval is how long --watch waits between refreshes.
 const watchInterval = 60 * time.Second
 
+// version is the released version, stamped at build time by the release
+// workflow with -ldflags "-X github.com/McKean/aiquokka/cmd.version=$VERSION".
+// A plain go build leaves it "dev".
+var version = "dev"
+
+// versionString is what --version prints: the stamped version, or the
+// module version from the build info when the binary was installed from
+// a tagged module (go install ...@latest) without the ldflag.
+func versionString() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
+}
+
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "aiquokka",
-		Short: "Check AI coding-assistant usage limits",
+		Use:     "aiquokka",
+		Version: versionString(),
+		Short:   "Check AI coding-assistant usage limits",
 		Long: `aiquokka reports the usage limits of your AI coding subscriptions.
 
   aiquokka          all providers at once
