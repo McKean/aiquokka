@@ -95,3 +95,23 @@ func TestChatBinaryFallback(t *testing.T) {
 		t.Fatal("expected no chat binary next to a missing kiro-cli")
 	}
 }
+
+func TestIsLoginMessage(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{"Not logged in", true},
+		{"You are not logged in. Login now?", true},
+		{"Welcome to Kiro CLI, let's get you signed in!\nPress enter to continue to the browser or esc to cancel", true},
+		{"Login is required to use chat", true},
+		{"Please log in with kiro-cli login", true},
+		{"Logged in with Builder ID", false},
+		{"network timeout", false},
+	}
+	for _, tc := range cases {
+		if got := isLoginMessage(tc.text); got != tc.want {
+			t.Errorf("isLoginMessage(%q) = %v, want %v", tc.text, got, tc.want)
+		}
+	}
+}

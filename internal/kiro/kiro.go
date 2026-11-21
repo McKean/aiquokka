@@ -38,14 +38,17 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 		return nil, usage.NotConfigured("kiro-cli not found — install and log in to Kiro CLI first")
 	}
 
-	out, err := runUsage(ctx, path)
-	if err != nil && strings.Contains(string(out), "failed to launch") {
-		// kiro-cli execs kiro-cli-chat from a fixed location that some installs
-		// (e.g. Homebrew's app bundle) never populate; run its sibling directly.
-		if chat, ok := chatBinary(path); ok {
-			out, err = runUsage(ctx, chat)
+	// Verify there is an active login before invoking `chat`, which otherwise
+	// falls back to an interactive browser login prompt when logged out. Skip
+	// the check when KIRO_API_KEY is set, since headless API-key auth has no
+	// CLI login session.
+	if os.Getenv("KIRO_API_KEY") == "" {
+		if err := checkLoggedIn(ctx, path); err != nil {
+			return nil, err
 		}
 	}
+
+	out, err := runKiro(ctx, path, "chat", "--no-interactive", "/usage")
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, fmt.Errorf("Kiro usage request timed out")
@@ -71,12 +74,47 @@ func Fetch(ctx context.Context) (*usage.Report, error) {
 	return report, nil
 }
 
-func runUsage(ctx context.Context, bin string) ([]byte, error) {
-	return runCommand(ctx, bin, "chat", "--no-interactive", "/usage")
+func checkLoggedIn(ctx context.Context, path string) error {
+	out, err := runKiro(ctx, path, "whoami")
+	text := strings.TrimSpace(stripANSI(string(out)))
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("Kiro usage request timed out")
+		}
+		if isLoginMessage(text) {
+			return usage.NotConfigured("Kiro CLI is not logged in — run `kiro-cli login`")
+		}
+		if text == "" {
+			return fmt.Errorf("checking Kiro login status: %w", err)
+		}
+		return fmt.Errorf("checking Kiro login status: %w: %s", err, lastLines(text, 3))
+	}
+	if isLoginMessage(text) {
+		return usage.NotConfigured("Kiro CLI is not logged in — run `kiro-cli login`")
+	}
+	return nil
+}
+
+func runKiro(ctx context.Context, path string, args ...string) ([]byte, error) {
+	out, err := runCommand(ctx, path, args...)
+	if err != nil && strings.Contains(string(out), "failed to launch") {
+		// kiro-cli execs kiro-cli-chat from a fixed location that some installs
+		// (e.g. Homebrew's app bundle) never populate; run its sibling directly.
+		if chat, ok := chatBinary(path); ok {
+			out, err = runCommand(ctx, chat, args...)
+		}
+	}
+	return out, err
 }
 
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	// Disable Kiro CLI's browser-login fallback even if chat encounters an
+	// expired or revoked session: Q_FAKE_IS_REMOTE=1 suppresses browser opens,
+	// BROWSER=false blocks generic openers, and killProcessTree detaches the
+	// controlling terminal on Unix so interactive login prompts fail instead
+	// of waiting on /dev/tty.
+	cmd.Env = append(os.Environ(), "Q_FAKE_IS_REMOTE=1", "BROWSER=false")
 	killProcessTree(cmd)
 	cmd.WaitDelay = commandWaitDelay
 	return cmd.CombinedOutput()
@@ -172,7 +210,10 @@ func isLoginMessage(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.Contains(lower, "not logged in") ||
 		strings.Contains(lower, "please log in") ||
-		strings.Contains(lower, "kiro-cli login")
+		strings.Contains(lower, "kiro-cli login") ||
+		strings.Contains(lower, "let's get you signed in") ||
+		strings.Contains(lower, "continue to the browser") ||
+		strings.Contains(lower, "login is required")
 }
 
 func lastLines(text string, count int) string {
