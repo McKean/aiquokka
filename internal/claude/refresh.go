@@ -31,9 +31,16 @@ type refreshResponse struct {
 }
 
 // refresh exchanges the refresh token for a fresh access token, updates o in
-// place, and persists the result back to the credentials file.
+// place, and persists the result back to the store the credential came from.
+//
+// A Keychain credential is never refreshed here: Claude Code refreshes that
+// same item while sessions run, so a write-back could rotate the token out
+// from under it. An expired one answers as --no-refresh does.
 func refresh(ctx context.Context, o *oauth) error {
 	if !usage.RefreshAllowed(ctx) {
+		return usage.NoRefresh("Claude", "claude")
+	}
+	if o.source.isKeychain() {
 		return usage.NoRefresh("Claude", "claude")
 	}
 	if o.RefreshToken == "" {
@@ -45,11 +52,11 @@ func refresh(ctx context.Context, o *oauth) error {
 		"client_id":     {claudeCodeClientID},
 	}
 
-	var lastErr error
+	var errs []string
 	for _, endpoint := range refreshEndpoints {
 		rr, err := doRefresh(ctx, endpoint, form)
 		if err != nil {
-			lastErr = err
+			errs = append(errs, endpoint+": "+err.Error())
 			continue
 		}
 		o.AccessToken = rr.AccessToken
@@ -65,7 +72,7 @@ func refresh(ctx context.Context, o *oauth) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("refreshing Claude token: %w", lastErr)
+	return fmt.Errorf("refreshing Claude token: %s", strings.Join(errs, "; "))
 }
 
 func doRefresh(ctx context.Context, endpoint string, form url.Values) (*refreshResponse, error) {
@@ -99,7 +106,7 @@ func doRefresh(ctx context.Context, endpoint string, form url.Values) (*refreshR
 // persist writes the updated oauth block back into the credentials file,
 // preserving any other keys already present.
 func persist(ctx context.Context, o *oauth) error {
-	if len(o.source.keychainItem) != 0 {
+	if o.source.isKeychain() {
 		data, err := readKeychainItem(ctx, o.source.keychainItem)
 		if err != nil {
 			return err

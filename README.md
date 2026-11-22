@@ -321,16 +321,18 @@ Pass `--no-refresh` to forbid both (see
 
 Claude Code stores its OAuth credential in `~/.claude/.credentials.json` (under
 `$CLAUDE_CONFIG_DIR` instead when that variable is set) or, on macOS, the
-Keychain. Aiquokka prefers the credentials file when it contains an OAuth
-access token. Otherwise it reads the `Claude Code-credentials` item through
-the macOS `security` tool (the same helper Claude Code uses to write it),
-which avoids a Keychain permission dialog for the aiquokka binary.
-Over SSH, unlock the login Keychain first with `security unlock-keychain`.
-If a permission dialog still cannot be confirmed remotely, aiquokka times
-out the Keychain read instead of hanging. When a refresh is required, it
-updates that same item while preserving fields it does not own. If several
-matching items exist, it prefers the current user's. This storage format is
-an implementation detail of Claude Code and may change without notice.
+Keychain. Aiquokka prefers the credentials file when it holds a live OAuth
+access token. When the file is missing, unparseable, or expired, it reads the
+`Claude Code-credentials` item through the macOS `security` tool (the same
+helper Claude Code uses to write it), which avoids a Keychain permission dialog
+for the aiquokka binary, and uses it if it is live. Over SSH, unlock the login
+Keychain first with `security unlock-keychain`. If a permission dialog still
+cannot be confirmed remotely, aiquokka times out the Keychain read instead of
+hanging. The Keychain item is read-only — aiquokka never refreshes or writes it,
+so it cannot race Claude Code's own refreshes; an expired Keychain credential
+reports that the token has expired instead. If several matching items exist, it
+prefers the current user's. This storage format is an implementation detail of
+Claude Code and may change without notice.
 
 Per-provider notes:
 

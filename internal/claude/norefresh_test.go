@@ -53,6 +53,39 @@ func TestFetchWithoutRefreshLeavesExpiredTokenAlone(t *testing.T) {
 	}
 }
 
+// An expired Keychain credential is never refreshed — including when found
+// without a matching account name: with or without --no-refresh the fetch ends
+// without spending a token request and without writing the Keychain.
+func TestFetchExpiredKeychainCredentialIsNotRefreshed(t *testing.T) {
+	writeHome(t, nil)
+	originalUpdate := updateKeychainItem
+	t.Cleanup(func() { updateKeychainItem = originalUpdate })
+	writes := 0
+	updateKeychainItem = func(context.Context, []byte, []byte) error {
+		writes++
+		return nil
+	}
+	httpxtest.Refuse(t)
+
+	for _, item := range [][]byte{[]byte("item"), []byte("")} {
+		original := readKeychainCredentials
+		readKeychainCredentials = func(context.Context) ([]byte, []byte, error) {
+			return []byte(`{"accessToken":"keychain-token","refreshToken":"keychain-refresh","expiresAt":1}`), item, nil
+		}
+		for _, ctx := range []context.Context{context.Background(), usage.WithoutRefresh(context.Background())} {
+			_, err := Fetch(ctx)
+			if !errors.Is(err, usage.ErrNoRefresh) {
+				readKeychainCredentials = original
+				t.Fatalf("item=%q: err = %v, want ErrNoRefresh", item, err)
+			}
+		}
+		readKeychainCredentials = original
+	}
+	if writes != 0 {
+		t.Fatalf("Keychain writes = %d, want 0", writes)
+	}
+}
+
 func TestLoadAccount(t *testing.T) {
 	writeHome(t, map[string]string{
 		".claude.json": `{"oauthAccount":{"accountUuid":"uuid-1","emailAddress":"a@example.com","organizationName":"x"},"other":1}`,

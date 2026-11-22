@@ -67,7 +67,12 @@ type credentialsFile struct {
 }
 
 type credentialSource struct {
+	keychain     bool
 	keychainItem []byte
+}
+
+func (s credentialSource) isKeychain() bool {
+	return s.keychain || len(s.keychainItem) != 0
 }
 
 var errKeychainCredentialsNotFound = errors.New("Claude Code Keychain credentials not found")
@@ -86,40 +91,61 @@ func (o oauth) expired(now time.Time) bool {
 	return now.UnixMilli() >= o.ExpiresAt
 }
 
-// loadCredentials prefers the credentials file in the Claude config dir when it contains an
-// OAuth access token and falls back to the macOS Keychain otherwise.
+// loadCredentials returns the live credential across both stores: the file in
+// the Claude config dir when it holds a live OAuth access token, else the
+// macOS Keychain item when it is live. The Keychain is only read when the
+// file is missing, unparseable, or expired. When neither store is live, the
+// file keeps today's place if it parses, so its own refresh path is unchanged.
 func loadCredentials(ctx context.Context) (*oauth, error) {
 	path, err := credentialsPath()
 	if err != nil {
 		return nil, err
 	}
 
-	data, fileErr := os.ReadFile(path)
-	if fileErr == nil {
-		o, _, err := parseCredentials(data)
-		if err == nil {
-			return o, nil
+	var fileCreds *oauth
+	var fileErr error
+	if data, err := os.ReadFile(path); err == nil {
+		if o, _, perr := parseCredentials(data); perr == nil {
+			fileCreds = o
+		} else {
+			fileErr = fmt.Errorf("parsing %s: %w", path, perr)
 		}
-		fileErr = fmt.Errorf("parsing %s: %w", path, err)
-	} else if !os.IsNotExist(fileErr) {
-		return nil, fileErr
-	}
-
-	if data, item, err := readKeychainCredentials(ctx); err == nil {
-		o, _, err := parseCredentials(data)
-		if err != nil {
-			return nil, err
-		}
-		o.source = credentialSource{keychainItem: item}
-		return o, nil
-	} else if !errors.Is(err, errKeychainCredentialsNotFound) {
+	} else if !os.IsNotExist(err) {
 		return nil, err
+	} else {
+		fileErr = err
 	}
 
-	if fileErr != nil && !os.IsNotExist(fileErr) {
-		return nil, fileErr
+	if fileCreds != nil && !fileCreds.expired(time.Now()) {
+		return fileCreds, nil
 	}
-	return nil, usage.NotConfigured("no Claude credentials at %s — run `claude` to log in", path)
+
+	data, item, err := readKeychainCredentials(ctx)
+	switch {
+	case err == nil:
+		o, _, perr := parseCredentials(data)
+		if perr != nil {
+			if fileCreds != nil {
+				return fileCreds, nil
+			}
+			return nil, perr
+		}
+		o.source = credentialSource{keychain: true, keychainItem: item}
+		if o.expired(time.Now()) && fileCreds != nil {
+			return fileCreds, nil
+		}
+		return o, nil
+	case errors.Is(err, context.Canceled):
+		return nil, err
+	case fileCreds != nil:
+		return fileCreds, nil
+	case !errors.Is(err, errKeychainCredentialsNotFound):
+		return nil, err
+	case fileErr != nil && !os.IsNotExist(fileErr):
+		return nil, fileErr
+	default:
+		return nil, usage.NotConfigured("no Claude credentials at %s — run `claude` to log in", path)
+	}
 }
 
 // mergeCredentials preserves fields owned by Claude Code while applying the
